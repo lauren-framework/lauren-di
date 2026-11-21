@@ -149,12 +149,14 @@ docs = ["mkdocs>=1.6", "mkdocs-material>=9.5", "pymdown-extensions>=10.7"]
   sibling convention `lauren-middlewares` → `lauren_middlewares` (D-1).
 - **PEP 561:** `lauren_di/py.typed` is shipped in the wheel and listed in package data. No
   inline `type: ignore` is required to use the public API.
-- **Runtime dependencies:** none, and no module imports anything outside the standard library.
-  The forward-reference resolver is in-tree (§6.4). The one third-party name it *consults* is
+- **Runtime dependencies:** none, and no module *requires* anything outside the standard library —
+  the wheel installs and imports in an environment that contains nothing else (G4). The
+  forward-reference resolver is in-tree (§6.4). The one third-party name a module *consults* is
   `typing_extensions`, and only when that package is already installed — a **guarded optional
   import**, declared in §6.2, never required: `dependencies = []` (G4) is the claim, and the
   clean-venv test imports the built wheel in an environment without `typing_extensions` to prove
-  the resolver works when it is absent.
+  the resolver works when it is absent. The absolute here is about *requirements*, not about
+  imports: a guarded import of an installed package is not a dependency.
 - **Optional extras:** contributor-only, never required by users, and there are no runtime
   extras: exactly `dev` (pytest, coverage, mypy, ruff, nox, and the wheel builder used by
   `tests/packaging/`), `release` (`build`, `twine`) and `docs` (mkdocs and its extensions). The
@@ -934,7 +936,7 @@ Convention changes recorded for later PRDs:
 | Quickstart | `tests/integration/test_quickstart.py` | §5.2 runs unmodified and prints the asserted value |
 | Examples | `tests/docs/test_prd_examples.py` | Every §5.4 block compiles; blocks marked `run` execute |
 | Packaging | `tests/packaging/test_wheel.py` | `py.typed` in wheel; no *unconditional* `Requires-Dist` — every `Requires-Dist` is `extra ==`-gated; `requires-python >=3.10`; import works from a clean venv |
-| Import graph | `tests/packaging/test_no_framework_imports.py` | Built wheel imports no third-party module; `lauren` absent |
+| Import graph | `tests/packaging/test_no_framework_imports.py` | Built wheel has no *mandatory* third-party import — the only guarded optional import is the one §6.2 declares; `lauren` absent |
 | Typing | `tests/typing/` | `mypy --strict` and `pyright` over §5.4 and public stubs; `resolve` overloads infer `T` |
 | Interpreters | CI matrix | 3.10, 3.11, 3.12, 3.13, 3.14 |
 | Boundary | `tests/unit/test_non_goals.py` | `lauren_di` exports no HTTP/router/extractor/scheduler/module-graph symbol (forbidden-name denylist) |

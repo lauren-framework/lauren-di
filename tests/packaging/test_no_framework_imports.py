@@ -285,6 +285,37 @@ def prd_guarded_optional_imports() -> tuple[str, ...]:
     return tuple(re.findall(r"`([^`]+)`", names))
 
 
+def prd_block(first_line: str) -> str:
+    """The PRD 01 paragraph or bullet that starts with ``first_line``, joined into one string.
+
+    Continuation lines are indented, so a bullet ends at the next bullet or blank line, not
+    merely at the next newline; a paragraph ends at the first blank line. Joining matters
+    because the sentences these tests read wrap across lines.
+    """
+    lines = PRD.read_text(encoding="utf-8").splitlines()
+    start = next(index for index, line in enumerate(lines) if line.startswith(first_line))
+    end = start + 1
+    while end < len(lines) and lines[end].strip() and not lines[end].startswith("- **"):
+        end += 1
+    return " ".join(lines[start:end])
+
+
+def prd_mandatory_qualifier() -> str:
+    """The word §6.2 qualifies the walk's verdict with — currently ``mandatory``.
+
+    §6.2 reads "… fails on any **mandatory** third-party import (G4)", so the qualifier is
+    read out of the document rather than restated here: if that sentence loses it, the §10
+    row is not the only thing that has to change.
+    """
+    match = re.search(r"fails on any \*\*(\w+)\*\*", prd_block("Otherwise a test walks"))
+
+    assert match is not None, (
+        "§6.2 no longer qualifies the walk's verdict ('fails on any **mandatory** …'); "
+        "without the qualifier it contradicts its own guarded-optional-import paragraph"
+    )
+    return match.group(1)
+
+
 # -- the installed wheel -----------------------------------------------------
 
 
@@ -342,6 +373,56 @@ def test_the_prd_import_graph_row_names_this_module() -> None:
     assert "tests/packaging/test_no_framework_imports.py" in row
     assert "third-party" in row
     assert "`lauren` absent" in row
+
+
+def test_the_import_graph_row_states_the_same_rule_as_section_6_2() -> None:
+    """§10's row and §6.2's sentence must describe one rule, not two.
+
+    §6.2 qualifies what the walk rejects — "fails on any **mandatory** third-party import" —
+    and the §10 row summarises it. An unqualified row ("imports no third-party module") tells
+    a reader of the test plan a rule the code cannot satisfy, because the wheel does ship one
+    guarded optional import; that is the defect this goal removed from §5.1 and §6.2, and the
+    traceability table has to say the same thing as the sections it traces.
+    """
+    row = next(
+        line
+        for line in PRD.read_text(encoding="utf-8").splitlines()
+        if line.startswith("| Import graph |")
+    )
+    qualifier = prd_mandatory_qualifier()
+
+    assert qualifier in row, f"§10's import-graph row omits §6.2's qualifier {qualifier!r}: {row}"
+
+    absolute = re.search(r"imports no third-party (?:module|import)", row)
+    assert absolute is None, (
+        f"§10's row states the absolute {absolute.group(0)!r}, which §6.2's guarded optional "
+        f"import falsifies: {row}"
+    )
+
+
+def test_the_runtime_dependencies_bullet_agrees_with_section_6_2() -> None:
+    """§5.1's runtime bullet must not deny the import §6.2 declares.
+
+    §5.1 is where a user learns what the distribution pulls in, so it has to name every module
+    §6.2 lets a guarded import mention, and it may not restate that concession as an absolute
+    about *imports*: "no module imports anything outside the standard library" is false as soon
+    as `typing_extensions` is installed, which is precisely the branch §6.2 documents. The true
+    absolute is about requirements.
+    """
+    bullet = prd_block("- **Runtime dependencies:**")
+    declared = prd_guarded_optional_imports()
+
+    for module in declared:
+        assert f"`{module}`" in bullet, (
+            f"§5.1 does not name {module!r}, which §6.2 declares as a guarded optional import"
+        )
+    assert "guarded optional" in bullet, "§5.1 must use §6.2's term for the concession"
+
+    absolute = re.search(r"no module imports anything outside[^.]*", bullet)
+    assert absolute is None, (
+        f"§5.1 claims {absolute.group(0)!r}, which §6.2's guarded optional import "
+        f"{sorted(declared)} falsifies; the bullet may claim requirements, not imports"
+    )
 
 
 def test_optional_imports_are_exactly_the_declared_ones(sites: list[ImportSite]) -> None:
