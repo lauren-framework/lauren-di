@@ -149,8 +149,12 @@ docs = ["mkdocs>=1.6", "mkdocs-material>=9.5", "pymdown-extensions>=10.7"]
   sibling convention `lauren-middlewares` → `lauren_middlewares` (D-1).
 - **PEP 561:** `lauren_di/py.typed` is shipped in the wheel and listed in package data. No
   inline `type: ignore` is required to use the public API.
-- **Runtime dependencies:** none. `typing_extensions` is not used; the forward-reference
-  resolver is in-tree (§6.4).
+- **Runtime dependencies:** none, and no module imports anything outside the standard library.
+  The forward-reference resolver is in-tree (§6.4). The one third-party name it *consults* is
+  `typing_extensions`, and only when that package is already installed — a **guarded optional
+  import**, declared in §6.2, never required: `dependencies = []` (G4) is the claim, and the
+  clean-venv test imports the built wheel in an environment without `typing_extensions` to prove
+  the resolver works when it is absent.
 - **Optional extras:** contributor-only, never required by users, and there are no runtime
   extras: exactly `dev` (pytest, coverage, mypy, ruff, nox, and the wheel builder used by
   `tests/packaging/`), `release` (`build`, `twine`) and `docs` (mkdocs and its extensions). The
@@ -809,8 +813,19 @@ lauren_di/__init__.py
 └── py.typed
 ```
 
-No module may import `lauren`, `pydantic`, `msgspec`, `anyio`, `httpx` or `click`. A test walks
-the import graph of the built wheel and fails on any third-party import (G4).
+No module may import `lauren`, `pydantic`, `msgspec`, `anyio`, `httpx` or `click`. That denylist is
+absolute: wrapping one of the six in a `try:`/`except ImportError:` block does not make it allowed.
+Otherwise a test walks the import graph of the built wheel and fails on any **mandatory**
+third-party import (G4).
+
+**Guarded optional imports:** `typing_extensions` — consulted only if it is already installed, never
+required. This is the only third-party name a guarded import may mention, and it is declared here on
+purpose: `tests/packaging/test_no_framework_imports.py` reads this line, so a guarded import that is
+not named above fails, and an allowance that outlives its import fails as well. It exists because
+`lauren_di/_typing/forwardref.py` is kept byte-comparable with the standalone resolver it was
+vendored from, and that resolver widens its namespace with `typing_extensions` when a user happens to
+have it installed; deleting the branch would cost that property and buy nothing, since the wheel
+imports without it (§5.1, G4).
 
 ### 6.3 The three seam replacements
 

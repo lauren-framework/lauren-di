@@ -26,9 +26,11 @@ user happens to have it installed. It is never required — the clean-venv test
 proves the wheel imports without it — and it is not one of the six modules §6.2
 forbids. Treating it as a violation would mean patching the vendored resolver or
 pretending it is not there; the rule below is the third option. Mandatory imports
-must be standard library, and any optional third-party import must be named in
-:data:`ALLOWED_OPTIONAL_IMPORTS` with a reason, so a new one cannot arrive
-unnoticed and a stale allowance cannot outlive the import it permits.
+must be standard library, and any optional third-party import must be **declared in
+§6.2's "Guarded optional imports" line** and carry a reason in
+:data:`ALLOWED_OPTIONAL_IMPORTS`. Both halves are checked against the PRD rather
+than against a copy of it, so a guarded import that is not declared fails, and an
+allowance that outlives its import fails too.
 """
 
 from __future__ import annotations
@@ -53,7 +55,11 @@ SELF = "lauren_di"
 #: re-reads the sentence, so the two cannot drift apart.
 DENIED = ("lauren", "pydantic", "msgspec", "anyio", "httpx", "click")
 
-#: The only third-party modules a *guarded* import may name, with the reason.
+#: §6.2's "Guarded optional imports" line names which modules may be imported this
+#: way; this maps each to *why*, because the PRD states the rule and the test should
+#: not restate it. ``test_optional_imports_are_exactly_the_declared_ones`` compares the
+#: code against the PRD line, and ``test_every_declared_guarded_import_carries_a_reason``
+#: compares this mapping against the same line, so neither can drift alone.
 ALLOWED_OPTIONAL_IMPORTS = {
     "typing_extensions": (
         "forwardref.py widens the forward-reference namespace when it is installed; "
@@ -263,6 +269,22 @@ def prd_denylist() -> tuple[str, ...]:
     return tuple(re.findall(r"`([^`]+)`", sentence))
 
 
+def prd_guarded_optional_imports() -> tuple[str, ...]:
+    """The guarded optional imports as §6.2 declares them.
+
+    The line reads ``**Guarded optional imports:** `typing_extensions` — consulted only
+    if it is already installed, …``; only the part before the em dash is the list, so
+    the explanatory prose that follows cannot be mistaken for a second entry.
+    """
+    line = next(
+        line
+        for line in PRD.read_text(encoding="utf-8").splitlines()
+        if line.startswith("**Guarded optional imports:**")
+    )
+    names = line.split("**Guarded optional imports:**", 1)[1].split("\u2014", 1)[0]
+    return tuple(re.findall(r"`([^`]+)`", names))
+
+
 # -- the installed wheel -----------------------------------------------------
 
 
@@ -323,16 +345,40 @@ def test_the_prd_import_graph_row_names_this_module() -> None:
 
 
 def test_optional_imports_are_exactly_the_declared_ones(sites: list[ImportSite]) -> None:
-    """No stale allowance: every declared module must still be imported optionally."""
+    """The code's guarded imports are exactly the ones §6.2 declares.
+
+    Read from the PRD, not from :data:`ALLOWED_OPTIONAL_IMPORTS`: a guarded import of a
+    module the document does not name fails here, which is what stops the allowance from
+    being widened by editing only the test.
+    """
     optional_third_party = {
         site.module
         for site in sites
         if site.kind == "optional" and site.module not in STDLIB and site.module != SELF
     }
 
-    assert optional_third_party == set(ALLOWED_OPTIONAL_IMPORTS), (
-        "ALLOWED_OPTIONAL_IMPORTS and the code disagree; update both together"
+    assert optional_third_party == set(prd_guarded_optional_imports()), (
+        "the code's guarded third-party imports and §6.2's declaration disagree; "
+        f"code: {sorted(optional_third_party)}, "
+        f"§6.2: {sorted(prd_guarded_optional_imports())}"
     )
+
+
+def test_every_declared_guarded_import_carries_a_reason() -> None:
+    """The other direction: no stale allowance, and no declaration without a reason."""
+    declared = set(prd_guarded_optional_imports())
+
+    assert set(ALLOWED_OPTIONAL_IMPORTS) == declared, (
+        "ALLOWED_OPTIONAL_IMPORTS and §6.2's declaration disagree; update both together"
+    )
+    assert all(reason.strip() for reason in ALLOWED_OPTIONAL_IMPORTS.values())
+
+
+def test_the_denylist_is_absolute_for_guarded_imports() -> None:
+    """§6.2 says wrapping one of the six in ``try``/``except`` does not make it allowed."""
+    overlap = set(prd_guarded_optional_imports()) & set(prd_denylist())
+
+    assert overlap == set(), f"§6.2 both denies and declares: {sorted(overlap)}"
 
 
 def test_type_only_imports_stay_in_the_standard_library(sites: list[ImportSite]) -> None:
