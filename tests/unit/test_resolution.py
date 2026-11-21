@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import dataclasses
+import inspect
 from typing import Annotated
 
 import pytest
@@ -31,6 +32,21 @@ class Repo:
 class Service:
     def __init__(self, repo: Repo) -> None:
         self.repo = repo
+
+
+@injectable()
+def make_repo_factory() -> Repo:
+    return Repo()
+
+
+@injectable()
+class SpelledFunctionField:
+    repo: Depends[make_repo_factory]
+
+
+@injectable()
+class AnnotatedFunctionField:
+    repo: Annotated[Repo, Inject(make_repo_factory)]
 
 
 def test_constructor_injection() -> None:
@@ -97,6 +113,39 @@ def test_field_gate_skips_primitives_and_defaults() -> None:
     instance = run(container.resolve(Mixed))
     assert instance.label == "static"
     assert not hasattr(instance, "count")
+
+
+def test_a_function_token_field_needs_annotated_inject() -> None:
+    """The field form the container's docstring shows is the one that injects.
+
+    PRD 01 §5.5 and PRD 02 §5.6 together: ``Depends[T]`` is a runtime spelling, and a
+    field is collected only when its annotation names a type. So
+    ``repo: Depends[make_repo_factory]`` is *not* a dependency — the subscript evaluates
+    to the function, which is not a type, and the gate skips the field silently —
+    while ``Annotated[Repo, Inject(make_repo_factory)]`` resolves the same token and
+    keeps ``Repo`` for checkers. ``lauren_di/_container.py``'s "Dependency declaration
+    styles" and "Function injectables" examples now show that form, so it is pinned here
+    instead of trusted. The classes are module-level so the deferred annotations
+    (``from __future__ import annotations``) can be evaluated, which is what the
+    container does.
+    """
+    container = DIContainer()
+    container.register(Repo)
+    container.register(make_repo_factory)
+    spelled_provider = container.register(SpelledFunctionField)
+    annotated_provider = container.register(AnnotatedFunctionField)
+
+    # The spelling *is* the function once the stored string is evaluated.
+    evaluated = inspect.get_annotations(SpelledFunctionField, eval_str=True)
+    assert evaluated["repo"] is make_repo_factory
+
+    # A function is not a type, so gate 4/6 drops the field: no dependency, no error.
+    assert spelled_provider.field_deps == ()
+    assert not hasattr(run(container.resolve(SpelledFunctionField)), "repo")
+
+    # The Annotated form carries the token and keeps the annotated type.
+    assert annotated_provider.field_deps == (("repo", make_repo_factory),)
+    assert isinstance(run(container.resolve(AnnotatedFunctionField)).repo, Repo)
 
 
 def test_dataclass_fields_are_left_to_the_generated_init() -> None:
