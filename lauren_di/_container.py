@@ -22,15 +22,21 @@ both!) of two places:
       @injectable()
       class Service:
           repo: UserRepo
-          cache: Depends[cache_factory]
+          cache: Annotated[Cache, Inject(cache_factory)]
 
   Field annotations that don't have a class-level default are treated as
-  dependencies. Each field's value is *resolved* before construction but
-  *assigned* after the instance exists, with ``object.__setattr__`` (PRD 02
-  §5.6): a user-supplied ``__init__`` therefore runs while the injected
-  attributes are still unset, and reading one there raises
-  ``AttributeError``. Assigning after construction is what keeps
-  ``@dataclass``, ``__slots__`` and frozen classes working.
+  dependencies, and only an annotation that names a *type* is collected: the
+  gate reads the annotation's token, so a token that is not a type (a
+  function provider) is spelled ``Annotated[T, Inject(token)]``, which keeps
+  ``T`` for checkers and carries the token for the container. ``Depends[T]``
+  is that same token (``Depends[T] is T``) but it is a runtime spelling
+  rather than a type form, so it belongs where it is *evaluated*, never in
+  annotation position (PRD 01 §5.5). Each field's value is *resolved* before
+  construction but *assigned* after the instance exists, with
+  ``object.__setattr__`` (PRD 02 §5.6): a user-supplied ``__init__``
+  therefore runs while the injected attributes are still unset, and reading
+  one there raises ``AttributeError``. Assigning after construction is what
+  keeps ``@dataclass``, ``__slots__`` and frozen classes working.
 
 Parameters in ``__init__`` / ``__new__`` that name the same attribute as a
 class-body annotation are injected by keyword as well — so existing code
@@ -49,11 +55,15 @@ provider whose return value is the dependency::
 
     @injectable()
     class UserRepo:
-        sessmkr: Depends[async_sessionmaker]
+        sessmkr: Annotated[AsyncSessionmaker, Inject(async_sessionmaker)]
 
 The function's own parameters are resolved via DI, exactly like a class
-constructor's. When resolving ``Depends[async_sessionmaker]`` the
-container calls the function (once per scope) and returns the value.
+constructor's. The factory's token is the function itself, so
+``resolve(async_sessionmaker)`` and ``Inject(async_sessionmaker)`` both reach
+it; the container calls the function (once per scope) and returns the value.
+A field annotated with the bare function is *not* collected — a function is
+not a type, so the field gate skips it — which is why the field above carries
+the token in ``Inject``.
 
 Module-scoped resolution
 ------------------------

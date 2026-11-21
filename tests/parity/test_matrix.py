@@ -131,9 +131,17 @@ def test_p4_a_missing_provider_names_the_token(backend: Backend) -> None:
     )
 
 
-def test_p5_class_body_field_injection_honours_depends(backend: Backend) -> None:
-    """P-5: a class-body field annotated `Depends[Repo]` is populated from the container."""
-    Depends = backend.attribute("Depends")
+def test_p5_class_body_field_injection_honours_the_annotations_token(backend: Backend) -> None:
+    """P-5: a class-body field is populated from the token its annotation names.
+
+    The fixture annotates the field `repo: Repo`, which is the form PRD 08's P-5 row
+    states and the form PRD 01 §5.5 says a typed codebase writes. `Depends[Repo]` is
+    the *same* token (D-25), but it is a runtime spelling and not a type form, so
+    writing it in annotation position would make this fixture untypable — and, on a
+    function token, silently uninjected. The spelling's identity is pinned by
+    `tests/unit/test_public_api.py` for the library; it is not a shared behaviour,
+    because the reference's `Depends` is an `Annotated` marker (PRD 04 M-51).
+    """
 
     @backend.injectable()
     class Repo:
@@ -141,7 +149,7 @@ def test_p5_class_body_field_injection_honours_depends(backend: Backend) -> None
 
     @backend.injectable()
     class Uses:
-        repo: Depends[Repo]
+        repo: Repo
 
     container = backend.container()
     container.register(Repo)
