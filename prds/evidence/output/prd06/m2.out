@@ -1,0 +1,12 @@
+# probe: prd06/m2.py
+# lauren.__file__: /root/python_projects/lauren-all/lauren-framework/lauren/__init__.py
+# reference._di.__init__.py sha256: 22d1c3f33814c02ed14dc6129cfc82c8ecdaf87461c09875dee6823ec3289bd2
+# exit: 0
+E-207 two modules each bind Store once; compile        -> ProtocolAmbiguityError | detail: {'token': 'Store', 'count': 2} | msg: Multiple bindings for Store
+     compiled flag: False
+E-207b ModA sees its own                               -> ok: StoreA
+E-207c ModB sees its own                               -> ok: StoreB
+E-208 structural scan ModA -> class                    -> ok: RunnerA
+E-208b structural scan ModB -> class                   -> ok: RunnerB
+E-208c structural scan global (no module) count        -> ProtocolAmbiguityError | detail: {} | msg: Multiple bindings for Runner
+E-209 set_visible(empty) hides own provider            -> MissingProviderError | detail: {'token': 'SvcA', 'module': 'ModA'} | msg: No provider for SvcA visible from module ModA

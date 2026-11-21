@@ -1,0 +1,10 @@
+# probe: prd08/p5.py
+# lauren.__file__: /root/python_projects/lauren-all/lauren-framework/lauren/__init__.py
+# reference._di.__init__.py sha256: 22d1c3f33814c02ed14dc6129cfc82c8ecdaf87461c09875dee6823ec3289bd2
+# exit: 0
+E-430 inv_constructor_injection    lauren=PASS | lauren_di=SKIP
+E-431 inv_singleton_identity       lauren=PASS | lauren_di=SKIP
+E-432 inv_value_supplied_token     lauren=PASS | lauren_di=SKIP
+E-433 inv_missing_provider_detail  lauren=PASS | lauren_di=SKIP
+E-435 adapters executed                  -> ['lauren']
+E-436 per-backend divergences            -> [('lauren', 'lauren'), ('lauren_di', 'lauren_di')]

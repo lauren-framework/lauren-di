@@ -1,0 +1,14 @@
+# probe: prd08/p2.py
+# lauren.__file__: /root/python_projects/lauren-all/lauren-framework/lauren/__init__.py
+# reference._di.__init__.py sha256: 22d1c3f33814c02ed14dc6129cfc82c8ecdaf87461c09875dee6823ec3289bd2
+# exit: 0
+E-403 UsesDepends      compile=ok  field_deps=(('r', <class '__main__.Repo'>),)
+E-404 UsesPath         MissingProviderError: {'token': 'str'} | No provider for str
+E-405 UsesHeader       MissingProviderError: {'token': 'str'} | No provider for str
+E-406 UsesUnrelatedMeta compile=ok  field_deps=()
+E-407 PlainData        compile=ok  field_deps=()
+E-408 Depends is ExtractionMarker   -> True
+E-408b Path is ExtractionMarker     -> True
+E-408c Header is ExtractionMarker   -> True
+E-408d Depends module               -> lauren.extractors
+E-408e Depends is generic alias?    -> type | supports [] -> True

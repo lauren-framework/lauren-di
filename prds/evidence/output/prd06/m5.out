@@ -1,0 +1,13 @@
+# probe: prd06/m5.py
+# lauren.__file__: /root/python_projects/lauren-all/lauren-framework/lauren/__init__.py
+# reference._di.__init__.py sha256: 22d1c3f33814c02ed14dc6129cfc82c8ecdaf87461c09875dee6823ec3289bd2
+# exit: 0
+E-218 Core visible_in : ['SvcA']
+E-218 App  visible_in : ['SvcA', 'SvcB']
+E-218 unregistered mod : frozenset()
+E-219 export undeclared provider                         -> ModuleExportViolation | detail: {'module': 'BadExport', 'export': 'SvcB'} | msg: BadExport exports SvcB which it neither declares nor imports
+E-220 provider declared in two modules                   -> ModuleExportViolation | detail: {'provider': 'SvcA', 'modules': ['M1', 'M2']} | msg: Provider SvcA is declared in both M1 and M2; a provider may only belong to one module.
+E-221 circular reference built lazily                    -> ok: see E-222
+E-222 circular module import                             -> CircularModuleError | detail: {'cycle': ['CircA', 'CircB', 'CircA']} | msg: Circular module import: CircA -> CircB -> CircA
+E-223 undecorated subclass __lauren_module__             -> MetadataInheritanceError | detail: {'class': 'Child', 'inherits_from': 'AppModule'} | msg: Child inherits @module metadata from AppModule but is not itself decorated with @module. Decorate the subclass explicitl
+E-224 Top visible_in: []

@@ -1,0 +1,43 @@
+# probe: prd05/errors.py
+# lauren.__file__: /root/python_projects/lauren-all/lauren-framework/lauren/__init__.py
+# reference._di.__init__.py sha256: 22d1c3f33814c02ed14dc6129cfc82c8ecdaf87461c09875dee6823ec3289bd2
+# exit: 0
+E-101    describe str                             -> 'SETTINGS'
+E-101b   describe Token                           -> 'Token(DB)'
+E-101c   describe class                           -> 'dict'
+E-101d   describe list[P]                         -> 'list'
+E-101e   describe lambda                          -> '<lambda>'
+E-102    cycle C1 <-> C2 compile                        -> CircularDependencyError | code: circular_dependency | detail: {'cycle': ['C1', 'C2', 'C1']} | msg: Circular dependency: C1 -> C2 -> C1
+E-103    self cycle compile                             -> CircularDependencyError | code: circular_dependency | detail: {'cycle': ['S', 'S']} | msg: Circular dependency: S -> S
+E-104    missing edge detail                            -> MissingProviderError | code: missing_provider | detail: {'token': 'NoSuchThing'} | msg: No provider for NoSuchThing
+E-105    missing dep of unreferenced provider           -> MissingProviderError | code: missing_provider | detail: {'token': 'AlsoMissing'} | msg: No provider for AlsoMissing
+E-106    default suppresses the edge                    -> ok: 
+E-107    ambiguity sweep (unreferenced)                 -> ProtocolAmbiguityError | code: protocol_ambiguity | detail: {'token': 'Token(PA)', 'count': 2} | msg: Multiple bindings for Token(PA)
+E-108    ambiguity registered first                     -> CircularDependencyError | code: circular_dependency | detail: {'cycle': ['C1', 'C2', 'C1']} | msg: Circular dependency: C1 -> C2 -> C1
+E-108    cycle registered first                         -> CircularDependencyError | code: circular_dependency | detail: {'cycle': ['C1', 'C2', 'C1']} | msg: Circular dependency: C1 -> C2 -> C1
+E-109    singleton depends on request                   -> DIScopeViolationError | code: di_scope_violation | detail: {'dependent_scope': 'singleton', 'dependency_scope': 'request', 'dependency': 'Req'} | msg: Singleton depends on request-scoped Req
+E-120    clean compile                                  -> ok: 
+E-120b   compiled flag after a clean compile      -> True
+E-110    compile again after a late register            -> ok: 
+E-110b   compiled flag after the late register    -> True
+E-116    resolve the late provider                      -> MissingProviderError | code: missing_provider | detail: {} | msg: No provider for NeverThere
+E-120c   compile that raises                            -> MissingProviderError | code: missing_provider | detail: {'token': 'NoSuchThing'} | msg: No provider for NoSuchThing
+E-120d   compiled flag after a failure            -> False
+E-111    register a subclass with inherited meta        -> MetadataInheritanceError | code: metadata_inheritance | detail: {} | msg: Sub inherited injectable metadata from Base; re-decorate explicitly.
+E-111b   read the marker off the subclass               -> MetadataInheritanceError | code: metadata_inheritance | detail: {} | msg: Sub inherited injectable metadata from Base; re-decorate explicitly.
+E-112    register an unannotated parameter              -> UnresolvableParameterError | code: unresolvable_parameter | detail: {'target': 'NoAnn', 'param': 'x'} | msg: NoAnn parameter 'x' missing annotation
+E-113    register a positional-only parameter           -> ok: Provider(cls=<class '__main__.main.<locals>.PosOnly'>, scope=<Scope.SINGLETON: 2>, provides=(), multi=False, deps=(('x', <class 'int'>),), post_construct=None, pre_destruct=None, owning_module=None, factory=<class '__main__.main.<locals>.PosOnly'>, field_deps=(), is_function_provider=False, is_generator_provider=False, provider_kind=None, alias_target=None, optional_dep_names=frozenset(), positional_arg_names=(), post_construct_hooks=(), pre_destruct_hooks=())
+E-128    register the same class twice                  -> DuplicateBindingError | code: duplicate_binding | detail: {} | msg: Dup already registered
+E-114    alias to an unknown target, compile            -> MissingProviderError | code: missing_provider | detail: {'alias': 'AL', 'target': 'GONE'} | msg: Alias AL -> GONE points at an unknown token. Did you forget to register the underlying provider?
+E-115    alias to an unknown target, resolve            -> MissingProviderError | code: missing_provider | detail: {} | msg: No provider for GONE
+E-119    get_provider on an unregistered token          -> MissingProviderError | code: missing_provider | detail: {} | msg: No provider for NOPE
+E-119b   resolve an unregistered token                  -> MissingProviderError | code: missing_provider | detail: {} | msg: No provider for NOPE
+E-117    ambiguity reached through an edge              -> ProtocolAmbiguityError | code: protocol_ambiguity | detail: {'count': 2} | msg: Multiple bindings for Token(PA)
+E-127    get_provider on an ambiguous token             -> ProtocolAmbiguityError | code: protocol_ambiguity | detail: {} | msg: Multiple bindings for Token(PA)
+E-118    cycle path from Entry                          -> CircularDependencyError | code: circular_dependency | detail: {'cycle': ['L1', 'L2', 'L1']} | msg: Circular dependency: L1 -> L2 -> L1
+E-121    cycle through a list[T] member                 -> CircularDependencyError | code: circular_dependency | detail: {'cycle': ['M1', 'Agg', 'M1']} | msg: Circular dependency: M1 -> Agg -> M1
+E-122    string annotation is a token                   -> MissingProviderError | code: missing_provider | detail: {'token': 'not_a_real_token'} | msg: No provider for not_a_real_token
+E-122b   same graph after registering that name         -> MissingProviderError | code: missing_provider | detail: {'token': 'not_a_real_token'} | msg: No provider for not_a_real_token
+E-123    register a transient generator                 -> StartupError | code: startup_error | detail: {'provider': 'gen'} | msg: Generator function provider 'gen' cannot use Scope.TRANSIENT — transient instances are not tracked for cleanup.
+E-124    compile only                                   -> ok: 
+E-124b   constructions during compile             -> []

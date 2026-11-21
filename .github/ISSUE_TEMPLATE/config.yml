@@ -1,0 +1,11 @@
+blank_issues_enabled: false
+contact_links:
+  - name: Question or discussion
+    url: https://github.com/lauren-framework/lauren-di/discussions
+    about: Ask a question or start a design discussion. Please use Discussions rather than Issues for questions.
+  - name: Documentation
+    url: https://lauren-framework.github.io/lauren-di/
+    about: Read the guides, the API reference, and the llms.txt / llms-full.txt references.
+  - name: Security advisory (private)
+    url: https://github.com/lauren-framework/lauren-di/security/advisories/new
+    about: Report a vulnerability privately. Do not open a public issue for security problems.

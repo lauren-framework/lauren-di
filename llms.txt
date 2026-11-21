@@ -1,0 +1,95 @@
+# lauren-di
+
+> `lauren-di` is a standalone dependency-injection container for Python 3.10+.
+> It does one thing: dependency injection. Explicit registration, typed scopes
+> (`TRANSIENT < REQUEST < SINGLETON`), lifecycle hooks, opt-in module visibility
+> and build-time overrides. Standard library only, no runtime dependencies, PEP
+> 561 typed. Import name `lauren_di`. It contains no ASGI layer, no routing, no
+> request objects, no extractors, no configuration system and no scheduler.
+
+## Minimal example
+
+```python
+from lauren_di import DIContainer, injectable
+
+
+@injectable()
+class Repo:
+    def all(self) -> list[str]:
+        return ["a"]
+
+
+@injectable()
+class Service:
+    repo: Repo
+
+
+async def main() -> None:
+    container = DIContainer()
+    container.register(Repo)
+    container.register(Service)
+    container.compile()
+    await container.startup()
+    service = await container.resolve(Service)
+    await container.shutdown()
+```
+
+## How to use this file
+
+`llms.txt` is the map. [llms-full.txt](llms-full.txt) is the corpus: one section
+per public symbol with a signature and a runnable example.
+
+## Guides
+
+- [Getting started](docs/getting-started.md): install, declare, register, compile,
+  resolve, tear down.
+- [Providers and injection](docs/guides/providers.md): constructor, class-body field
+  and function providers; what the container refuses to collect.
+- [Scopes and lifecycle](docs/guides/scopes.md): the narrowing rule, request
+  scopes, hook ordering, teardown error containment.
+- [Custom providers and tokens](docs/guides/custom-providers.md): `Token`, `Inject`,
+  `OptionalDep`, `Depends`, the four `use_*` recipes, multi-bindings.
+- [Module visibility](docs/visibility.md): `owning_module`, `set_visible`,
+  `grant_visible`, `visible_in`, `explain`.
+- [Testing and overrides](docs/guides/testing.md): `OverridePlan`,
+  `ProviderOverride`, `building_with`, the pytest fixture pattern.
+- [Errors](docs/errors.md): the full catalogue with stable `code` values.
+- [Migration from lauren](docs/migration.md): symbol mapping and the marker renames.
+- [Reference](docs/reference.md): every exported name, with its signature.
+
+## Public surface (`lauren_di.__all__`)
+
+Container and scopes: `DIContainer`, `ResolutionScope`, `Scope`.
+
+Declarations: `injectable`, `injectable_meta`, `post_construct`, `pre_destruct`,
+`Depends`, `Inject`, `OptionalDep`, `InjectableMeta`.
+
+Records and aliases: `Provider`, `CustomProvider`, `Token`, `Owner`, `Grant`.
+
+Recipes: `use_value`, `use_class`, `use_factory`, `use_existing`.
+
+Overrides: `OverridePlan`, `ProviderOverride`, `building_with`,
+`active_override_plan`.
+
+Errors: `DIError`, `CircularDependencyError`, `DIScopeViolationError`,
+`DecoratorUsageError`, `DestructError`, `DuplicateBindingError`,
+`InvalidProviderError`, `LifecycleConfigError`, `LifecycleViolationError`,
+`MetadataInheritanceError`, `MissingProviderError`, `OverrideError`,
+`ProtocolAmbiguityError`, `UnresolvableParameterError`.
+
+## Invariants an agent must not break
+
+1. `container.compile()` validates; `resolve()` dispatches. Misuse fails before
+   traffic, not on the request path.
+2. `Scope` order is load-bearing: a consumer may not outlive its dependency
+   (`SINGLETON` depending on `REQUEST` is an error).
+3. `@post_construct` runs bases-first, `@pre_destruct` runs subclasses-first, and
+   hooks across a hierarchy must use distinct method names.
+4. `Inject(token)` is `Annotated` metadata only; as a default value it injects
+   nothing.
+5. `OptionalDep(token)` is only valid inside a `use_factory(injects=...)` list.
+6. Visibility is opt-in. Without `set_visible`/`grant_visible` the registry is
+   flat and `owning_module` is inert.
+7. `building_with(plan)` wraps registration, not resolution.
+8. Every exception subclasses `DIError` and carries a stable `code`.
+9. No runtime dependencies. Standard library only.

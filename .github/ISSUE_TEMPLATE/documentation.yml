@@ -1,0 +1,59 @@
+name: Documentation issue
+description: Report a wrong, missing or misleading piece of documentation.
+title: "[docs]: <one-line summary>"
+labels: ["documentation", "needs-triage"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Documentation here includes `README.md`, `docs/`, `llms.txt` and
+        `llms-full.txt`. Code blocks are compiled (and `run` blocks executed) by
+        `nox -s docs_contract`, so a broken example should not survive CI — if
+        one did, that is itself useful to know.
+
+  - type: dropdown
+    id: location
+    attributes:
+      label: Where is the problem?
+      options:
+        - README.md
+        - CONTRIBUTING.md
+        - docs/index.md
+        - docs/getting-started.md
+        - docs/guides/providers.md
+        - docs/guides/scopes.md
+        - docs/guides/custom-providers.md
+        - docs/guides/testing.md
+        - docs/visibility.md
+        - docs/errors.md
+        - docs/migration.md
+        - docs/reference.md
+        - llms.txt
+        - llms-full.txt
+        - docstring / type hints in the code
+    validations:
+      required: true
+
+  - type: input
+    id: quote
+    attributes:
+      label: Quote the current text
+      description: The sentence, signature or example that is wrong.
+    validations:
+      required: true
+
+  - type: textarea
+    id: correction
+    attributes:
+      label: What should it say?
+      description: Where possible, include the command or probe that shows the current text is wrong.
+    validations:
+      required: true
+
+  - type: checkboxes
+    id: terms
+    attributes:
+      label: Pre-flight checklist
+      options:
+        - label: I checked the latest version of the file, not a cached copy.
+          required: true

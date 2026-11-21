@@ -1,0 +1,26 @@
+# probe: prd07/p1.py
+# lauren.__file__: /root/python_projects/lauren-all/lauren-framework/lauren/__init__.py
+# reference._di.__init__.py sha256: 22d1c3f33814c02ed14dc6129cfc82c8ecdaf87461c09875dee6823ec3289bd2
+# exit: 0
+E-301 compile with value override                          -> ok: None
+E-301b resolve(Repo)                                       -> ok: 'FAKE'
+E-301c applied_overrides                                   -> ok: frozenset({<class '__main__.Repo'>})
+E-301d get_provider(Repo).scope                            -> ok: <Scope.SINGLETON: 2>
+E-302 compile (REQUEST row, value override)                -> ok: None
+E-302b row scope after override                            -> ok: <Scope.SINGLETON: 2>
+E-302c two request caches -> same object?                  -> ok: True
+E-302d same request cache -> value                         -> ok: 'FAKE'
+E-303 SINGLETON->REQUEST dependency, no override           -> DIScopeViolationError | detail: {'dependent_scope': 'singleton', 'dependency_scope': 'request', 'dependency': 'RequestRepo'} | msg: Singleton depends on request-scoped RequestRepo
+E-303b same graph, REQUEST row value-overridden            -> ok: None
+E-303c consumer built with the fake?                       -> ok: 'FAKE'
+E-304 kind=class     -> row scope: request
+E-304 kind=factory   -> row scope: request
+E-304 kind=existing  -> row scope: singleton
+E-304 kind=value     -> row scope: singleton
+E-305 compile values-override on non-multi row             -> ok: None
+E-305b resolve(Repo) with 2 rows                           -> ok: ['A', 'B']
+E-305c resolve(list[Repo])                                 -> ok: ['A', 'B']
+E-305d get_provider(Repo).multi                            -> ok: True
+E-306 compile, override target absent                      -> ok: None
+E-306b applied_overrides                                   -> ok: frozenset()
+E-306c optional flag is not consulted by the container     -> ValueError | detail: None | msg: a coroutine was expected, got False

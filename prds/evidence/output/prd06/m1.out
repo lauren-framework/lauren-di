@@ -1,0 +1,14 @@
+# probe: prd06/m1.py
+# lauren.__file__: /root/python_projects/lauren-all/lauren-framework/lauren/__init__.py
+# reference._di.__init__.py sha256: 22d1c3f33814c02ed14dc6129cfc82c8ecdaf87461c09875dee6823ec3289bd2
+# exit: 0
+E-201 resolve(no owning_module) sees everything      -> ok: <__main__.SvcB object at 0x<addr>>
+E-202 resolve(SvcB, owning_module=ModA)              -> MissingProviderError | detail: {'token': 'SvcB', 'module': 'ModA'} | msg: No provider for SvcB visible from module ModA
+E-202b resolve(SvcA, owning_module=ModA)             -> ok: <__main__.SvcA object at 0x<addr>>
+E-203 resolve(SvcB, owning_module=ModC, no entry)    -> ok: <__main__.SvcB object at 0x<addr>>
+E-204 global provider visible to restrictive module  -> ok: <__main__.GlobalSvc object at 0x<addr>>
+E-204b module-owned provider hidden from ModA        -> MissingProviderError | detail: {'token': 'SvcB', 'module': 'ModA'} | msg: No provider for SvcB visible from module ModA
+E-205 has_provider(SvcB, owning_module=ModA)         -> ok: False
+E-205b has_provider(SvcA, owning_module=ModA)        -> ok: True
+E-206 compile with invisible dependency edge         -> MissingProviderError | detail: {'token': 'SvcB', 'module': 'ModA'} | msg: No provider for SvcB visible from module ModA. Either declare it in this module or import a module that exports it.
+     compiled flag: False

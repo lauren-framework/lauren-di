@@ -1,0 +1,79 @@
+# lauren-di — everything that must never be committed.
+#
+# Every path below is one of three things: a build product that is reproducible
+# from a clean checkout (`dist/`, `site/`), a cache the next `nox` session
+# recreates (`.nox/`, `.pytest_cache/`, `__pycache__/`), or a tool's local
+# scratch. `nox -s clean` deletes the same set from a working tree, and
+# `tests/unit/test_gitignore_contract.py` checks this file in both directions:
+# every artefact nox creates must be ignored here, and no tracked deliverable
+# may be.
+#
+# Deliberately *not* ignored, although they are generated: `docs/reference.md`
+# and `llms-full.txt`. They are reviewed in the diff and verified by CI
+# (`nox -s docs_contract llms_check`), so they are tracked like source — see
+# AGENTS.md ground rule 4.
+#
+# Also deliberately not ignored: `prds/`. It is the specification this library
+# is written against (CONTRIBUTING.md §Layout), not planning scratch.
+
+# --- Byte-compiled code ----------------------------------------------------
+__pycache__/
+*.py[cod]
+*.pyo
+*$py.class
+
+# --- Build products --------------------------------------------------------
+# `nox -s build` and `python -m build` write both; setuptools leaves the rest.
+build/
+dist/
+*.egg-info/
+*.egg
+wheels/
+pip-wheel-metadata/
+MANIFEST
+
+# --- Documentation site ----------------------------------------------------
+# `nox -s docs` renders `docs/` + `mkdocs.yml` into `site/`.
+site/
+
+# --- Test, coverage and type-checker caches --------------------------------
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.hypothesis/
+.coverage
+.coverage.*
+coverage.xml
+htmlcov/
+.tox/
+
+# --- Nox virtualenvs -------------------------------------------------------
+# One virtualenv per session, recreated on demand.
+.nox/
+
+# --- Virtualenvs and local environment -------------------------------------
+.venv/
+venv/
+env/
+ENV/
+.python-version
+.env
+.env.*
+!.env.example
+
+# --- Editors and OS noise --------------------------------------------------
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+.DS_Store
+Thumbs.db
+
+# --- Agent and tool scratch ------------------------------------------------
+.agenthicc/
+.claude/
+.cursor/
+.aider*
+.continue/
+.codemap

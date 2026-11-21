@@ -1,0 +1,73 @@
+name: lint
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+concurrency:
+  group: lint-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  lint:
+    name: ruff check
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.14"
+      - run: python -m pip install "nox>=2024.4.15"
+      - run: nox -s lint
+
+  format:
+    name: ruff format --check
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.14"
+      - run: python -m pip install "nox>=2024.4.15"
+      - run: nox -s format
+
+  typecheck:
+    name: mypy
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.14"
+      - run: python -m pip install "nox>=2024.4.15"
+      - run: nox -s typecheck
+
+  llms-check:
+    name: llms-full.txt documents every public symbol
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.14"
+      - run: python -m pip install "nox>=2024.4.15"
+      - run: nox -s llms_check
+
+  docs-contract:
+    name: docs contract
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.14"
+      - run: python -m pip install "nox>=2024.4.15"
+      # Nav integrity, every python block compiles, `run` blocks execute, and
+      # every name in lauren_di.__all__ has a section in docs/reference.md.
+      - run: nox -s docs_contract

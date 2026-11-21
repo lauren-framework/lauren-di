@@ -1,0 +1,16 @@
+# probe: prd04/f.py
+# lauren.__file__: /root/python_projects/lauren-all/lauren-framework/lauren/__init__.py
+# reference._di.__init__.py sha256: 22d1c3f33814c02ed14dc6129cfc82c8ecdaf87461c09875dee6823ec3289bd2
+# exit: 0
+E-61 provides collision: ProtocolAmbiguityError {'token': 'Svc', 'count': 2} Multiple bindings for Svc
+E-62 provides collision resolve: ProtocolAmbiguityError {}
+E-63 Depends body: P1
+E-64 Inject overrides type: RealImpl
+E-65 value then class: MissingProviderError Twice is not marked @injectable
+E-66 class then value: DuplicateBindingError T2 already registered
+E-67 list[Token]: [1, 2]
+E-68 use_class multi: ['M1', 'M2']
+E-69 register_factory multi: [1, 2]
+E-70 register_value multi scalar: [1, 2]
+E-71 duplicate value: DuplicateBindingError V already registered
+E-72 Token body annotation: AttributeError 'BodyToken' object has no attribute 'db'

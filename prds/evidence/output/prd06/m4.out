@@ -1,0 +1,10 @@
+# probe: prd06/m4.py
+# lauren.__file__: /root/python_projects/lauren-all/lauren-framework/lauren/__init__.py
+# reference._di.__init__.py sha256: 22d1c3f33814c02ed14dc6129cfc82c8ecdaf87461c09875dee6823ec3289bd2
+# exit: 0
+E-215 compile, protocol token granted to both              -> ok: 
+E-215b list[Sender] from ModA (grant={Sender})             -> MissingProviderError | detail: {'token': 'list', 'module': 'ModA'} | msg: No provider for Sender (requested as list) visible from module ModA
+E-216 compile, concrete classes granted                    -> ok: 
+E-216b list[Sender] from ModA (grant={Sender,Smtp})        -> ok: ['Smtp']
+E-216c list[Sender] from ModB (grant={Sender,Ses})         -> ok: ['Ses']
+E-217 Smtp row cls: <class '__main__.Smtp'> | provides bound tokens: ['Smtp', 'Sender']

@@ -1,0 +1,62 @@
+name: Feature request
+description: Propose a capability that lauren-di does not have yet.
+title: "[feat]: <one-line summary>"
+labels: ["enhancement", "needs-triage"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        `lauren-di` does one thing: dependency injection. Requests that add a
+        framework layer (ASGI, routing, extractors, configuration, scheduling,
+        module-graph compilation) are out of scope by design and will be
+        redirected to the `lauren` framework.
+
+  - type: textarea
+    id: problem
+    attributes:
+      label: Problem
+      description: What are you unable to express today? Describe the concrete situation, not the API you have in mind.
+    validations:
+      required: true
+
+  - type: textarea
+    id: proposal
+    attributes:
+      label: Proposed API
+      description: Sketch the call shape you would like, even if it is rough.
+      render: python
+    validations:
+      required: true
+
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: Alternatives considered
+      description: What can you do today instead (custom provider, factory, override, alias)? Why is it not enough?
+
+  - type: dropdown
+    id: area
+    attributes:
+      label: Area
+      options:
+        - Registration and providers
+        - Scopes and lifecycle
+        - Resolution
+        - Custom providers and tokens
+        - Overrides
+        - Module visibility
+        - Errors and diagnostics
+        - Typing
+        - Documentation
+    validations:
+      required: true
+
+  - type: checkboxes
+    id: terms
+    attributes:
+      label: Pre-flight checklist
+      options:
+        - label: This is not a request for framework features (ASGI, routing, extractors, scheduling), which are out of scope.
+          required: true
+        - label: I searched the existing issues and could not find a duplicate.
+          required: true

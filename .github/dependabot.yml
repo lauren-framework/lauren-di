@@ -1,0 +1,36 @@
+version: 2
+updates:
+  # The actions our workflows pin.
+  - package-ecosystem: "github-actions"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+      day: "monday"
+      time: "06:00"
+      timezone: "Etc/UTC"
+    open-pull-requests-limit: 5
+    commit-message:
+      prefix: "ci"
+    labels:
+      - "dependencies"
+      - "ci"
+
+  # Dev, docs and release tooling declared in pyproject.toml. There are no
+  # runtime dependencies by design, so this only ever moves the toolchain.
+  - package-ecosystem: "pip"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+      day: "monday"
+      time: "06:00"
+      timezone: "Etc/UTC"
+    open-pull-requests-limit: 5
+    commit-message:
+      prefix: "deps"
+    labels:
+      - "dependencies"
+    groups:
+      python-minor-and-patch:
+        update-types:
+          - "minor"
+          - "patch"

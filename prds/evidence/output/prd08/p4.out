@@ -1,0 +1,12 @@
+# probe: prd08/p4.py
+# lauren.__file__: /root/python_projects/lauren-all/lauren-framework/lauren/__init__.py
+# reference._di.__init__.py sha256: 22d1c3f33814c02ed14dc6129cfc82c8ecdaf87461c09875dee6823ec3289bd2
+# exit: 0
+E-420 resolve alone fires post_construct -> [] (nothing fired)
+E-421 instance_lifecycle_hooks(instance) -> AttributeError | 'Service' object has no attribute '__mro__'
+E-421b instance_lifecycle_hooks(class)   -> ((<function Service.up at 0x<addr>>,), (<function Service.down at 0x<addr>>,))
+E-422 compute_order                      -> ['Service']
+E-423 after run_post_construct           -> ['Service.up']
+E-424 after run_pre_destruct             -> ['Service.up', 'Service.down'] | errors: []
+E-425 is the instance cached by the container? -> True
+E-426 container has lifecycle methods    -> ['_instance_index', '_lifecycle_owners', '_singletons', '_singletons_initialized', 'adopt_lifecycle', 'instance_index', 'mark_singleton_initialized', 'register_instance', 'set_singleton', 'singletons']

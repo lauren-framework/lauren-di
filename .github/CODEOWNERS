@@ -1,0 +1,30 @@
+# CODEOWNERS — request reviews from these owners on pull requests.
+# https://docs.github.com/en/repositories/managing-your-repositorys-settings-and-security/customizing-your-repository/about-code-owners
+#
+# Teams are placeholders for the published repository; swap them for the real
+# handles before the first public release.
+
+# Default owner — every file unless overridden below.
+*                       @lauren-framework/maintainers
+
+# The container itself — the only place a DI invariant may change.
+/lauren_di/_container.py  @lauren-framework/core
+/lauren_di/_scope.py      @lauren-framework/core
+/lauren_di/_overrides.py  @lauren-framework/core
+/lauren_di/_errors.py     @lauren-framework/core
+
+# Published surface: changing a signature here is a breaking change.
+/lauren_di/__init__.py    @lauren-framework/core
+/pyproject.toml           @lauren-framework/core
+
+# Documentation and the AI-readable references.
+/docs/                    @lauren-framework/docs
+/README.md                @lauren-framework/docs
+/llms.txt                 @lauren-framework/docs
+/llms-full.txt            @lauren-framework/docs
+/mkdocs.yml               @lauren-framework/docs
+/scripts/                 @lauren-framework/docs
+
+# CI, build and release pipeline.
+/.github/                 @lauren-framework/maintainers
+/noxfile.py               @lauren-framework/maintainers

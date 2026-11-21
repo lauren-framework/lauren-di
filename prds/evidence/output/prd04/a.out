@@ -1,0 +1,20 @@
+# probe: prd04/a.py
+# lauren.__file__: /root/python_projects/lauren-all/lauren-framework/lauren/__init__.py
+# reference._di.__init__.py sha256: 22d1c3f33814c02ed14dc6129cfc82c8ecdaf87461c09875dee6823ec3289bd2
+# exit: 0
+E-01 identity: False False
+E-01 hash distinct: True dict keys: 2
+E-02 shared equality: True True 1
+E-03 unique vs shared never equal: False False
+E-04 props/repr: X True Token('X', unique) Token('S', shared) Token(X)
+E-05 empty name: ValueError Token(name) requires a non-empty string name; got ''.
+E-05 non-str: ValueError Token(name) requires a non-empty string name; got 123.
+E-06 marker: Inject('TOK') _InjectMarker
+E-07 OptionalDep: X OptionalDep
+E-08 CustomProvider fields: [('provide', 'V'), ('kind', 'value'), ('value', 1), ('use_class', None), ('factory', None), ('inject', ()), ('existing', None), ('scope', <Scope.SINGLETON: 2>), ('multi', False), ('name', 'useValue')]
+E-09 bad token: DecoratorUsageError | detail: {} | use_value: provider token must not be None.
+E-09 bad token: DecoratorUsageError | detail: {'token': "['unhashable']"} | use_value: provider token ['unhashable'] is not hashable. DI
+E-10 multi value ok
+E-10b frozen: FrozenInstanceError
+E-11 one record, two containers: 2 rows; [{'n': 1}, {'n': 1}]
+E-12 bad kind: ValueError CustomProvider.kind must be one of ['class', 'existing', 'fa

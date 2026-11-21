@@ -1,0 +1,18 @@
+# probe: prd08/p1.py
+# lauren.__file__: /root/python_projects/lauren-all/lauren-framework/lauren/__init__.py
+# reference._di.__init__.py sha256: 22d1c3f33814c02ed14dc6129cfc82c8ecdaf87461c09875dee6823ec3289bd2
+# exit: 0
+E-401 INJECTABLE_META               -> __lauren_injectable__
+E-401b POST_CONSTRUCT               -> __lauren_post_construct__
+E-401c PRE_DESTRUCT                 -> __lauren_pre_destruct__
+E-401d attrs set by @injectable     -> ['__lauren_injectable__']
+E-401e INJECTABLE_META names an attr-> True
+E-402a DIContainer      in lauren.__all__ -> 1     | bound on lauren -> True
+E-402b Provider         in lauren.__all__ -> 0     | bound on lauren -> False
+E-402c InjectableMeta   in lauren.__all__ -> 0     | bound on lauren -> False
+E-402d CustomProvider   in lauren.__all__ -> 0     | bound on lauren -> False
+E-402e INJECTABLE_META  in lauren.__all__ -> 0     | bound on lauren -> False
+E-402f len(lauren.__all__)          -> 295
+E-402g lauren._di.__all__           -> ['DIContainer', 'Provider', 'InjectableMeta', 'INJECTABLE_META']
+E-402h Provider fields              -> ['alias_target', 'cls', 'deps', 'factory', 'field_deps', 'is_function_provider', 'is_generator_provider', 'multi', 'optional_dep_names', 'owning_module', 'positional_arg_names', 'post_construct', 'post_construct_hooks', 'pre_destruct', 'pre_destruct_hooks', 'provider_kind', 'provides', 'scope']
+E-402i InjectableMeta fields        -> ['multi', 'provides', 'scope']

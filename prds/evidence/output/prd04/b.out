@@ -1,0 +1,18 @@
+# probe: prd04/b.py
+# lauren.__file__: /root/python_projects/lauren-all/lauren-framework/lauren/__init__.py
+# reference._di.__init__.py sha256: 22d1c3f33814c02ed14dc6129cfc82c8ecdaf87461c09875dee6823ec3289bd2
+# exit: 0
+E-13 value provider: value singleton SETTINGS True dict
+E-14 value identity: True
+E-15 class provider: class request True True auto-marked: True
+E-16 class resolve: Impl True
+E-17 use_class non-class: DecoratorUsageError use_class.use must be a class; got <function main.
+E-18 factory provider: factory ['__factory_arg_0', '__factory_arg_1'] ('__factory_arg_0', '__factory_arg_1')
+E-19 factory positional: {'cfg': 'CFG', 'log': 'LOG'} [('CFG', 'LOG')]
+E-20 optional missing -> None: ('only', None)
+E-21 optional present: ('x', 'found')
+E-22 async factory awaited: async-value
+E-23 missing inject: MissingProviderError No provider for NOPE
+E-24 alias provider: existing True singleton
+E-25 alias inherits scope: True
+E-26 self-alias: DecoratorUsageError use_existing cannot alias a token to itself; both sides are 

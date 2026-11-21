@@ -1,0 +1,12 @@
+# probe: prd06/m3.py
+# lauren.__file__: /root/python_projects/lauren-all/lauren-framework/lauren/__init__.py
+# reference._di.__init__.py sha256: 22d1c3f33814c02ed14dc6129cfc82c8ecdaf87461c09875dee6823ec3289bd2
+# exit: 0
+E-210 compile (two multi siblings, two modules)          -> ok: 
+E-210b list[Multi] from ModA -> how many rows            -> ok: 2
+E-210c owners of those rows                              -> ok: ['ModA', 'ModB']
+E-211 ModB resolves ModA's provider via grant            -> ok: SvcA
+E-212 revoke ModB's grant after compile                  -> MissingProviderError | detail: {'token': 'SvcA', 'module': 'ModB'} | msg: No provider for SvcA visible from module ModB
+     compiled flag after set_visible: True
+E-213 unowned provider visible to empty-grant module     -> ok: SvcA
+E-214 structural scan from a module that granted nothing -> MissingProviderError | detail: {} | msg: No provider for Runner

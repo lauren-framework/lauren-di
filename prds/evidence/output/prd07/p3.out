@@ -1,0 +1,22 @@
+# probe: prd07/p3.py
+# lauren.__file__: /root/python_projects/lauren-all/lauren-framework/lauren/__init__.py
+# reference._di.__init__.py sha256: 22d1c3f33814c02ed14dc6129cfc82c8ecdaf87461c09875dee6823ec3289bd2
+# exit: 0
+E-315 compile class override                               -> ok: None
+E-315b resolve -> type                                     -> ok: 'FakeRepo'
+E-315c injected dep?                                       -> ok: 'Config'
+E-315d post_construct hooks run                            -> ok: []
+E-315e row scope                                           -> ok: <Scope.SINGLETON: 2>
+E-316 register, use_class='nope'                           -> UnresolvableParameterError | detail: {} | msg: use_class override for Repo needs a class; got 'nope'
+E-316b compile after the failed register                   -> ok: None
+E-317 compile factory override                             -> ok: None
+E-317b resolve tuple                                       -> ok: 'FAKE'
+E-317c injected element type                               -> ok: 'Config'
+E-318 compile, protocol-token override                     -> ok: None
+E-318b resolve(Sender)                                     -> ok: 'fake'
+E-318c resolve(Smtp) still real?                           -> ok: 'smtp'
+E-318d resolve(list[Sender])                               -> ProtocolAmbiguityError | detail: {'token': 'list', 'element': 'Sender', 'count': 1} | msg: list requires every provider for Sender to be registered with multi=True
+E-319 plan mutated after build: first/second ->  ('V1', 'V1')
+E-320 two containers, one plan     ->  ('SHARED', 'SHARED')
+E-321 get(unhashable)                                      -> ok: None
+E-321b get(Repo)                                           -> ok: 'X'
