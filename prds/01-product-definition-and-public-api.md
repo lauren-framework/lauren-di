@@ -772,6 +772,8 @@ print(sorted(leaf.code for leaf in leaves))
 ```python
 from typing import Any, Mapping, TypeVar, overload
 
+from lauren_di import Token
+
 T = TypeVar("T")
 
 class DIContainer:
@@ -787,7 +789,7 @@ class DIContainer:
     @overload
     async def resolve(
         self,
-        token: Any,
+        token: str | Token,
         *,
         request_cache: dict[Any, Any] | None = None,
         values: Mapping[Any, Any] | None = None,
@@ -805,6 +807,20 @@ class DIContainer:
         ...  # implementation
 ```
 
+- The fallback overload names the two **non-class** token kinds — a `str` and a `Token` — and not
+  `Any`. An overloaded call is resolved with the assignment's declared type in view, and `Any`
+  matches a class token too, so with an `Any` fallback `number: int = await
+  container.resolve(Config)` took the untyped variant and passed `mypy --strict` while `pyright`
+  rejected the same line. Naming the non-class kinds leaves a class token exactly one candidate, so
+  both checkers report the conflict instead of one of them absorbing it.
+- The implementation signature stays `token: Any` — that is the row §5.3.3 states. The overloads are
+  declaration-only, so the runtime still accepts **any** hashable key; only the static surface
+  narrows. A host that resolves an exotic key (or a token whose static type mixes a class with a
+  string, e.g. `tok: type[Config] | str` in a registration loop) writes
+  `await container.resolve(cast(Any, key))`, which is the one spelling this contract costs.
+- `tests/unit/test_resolve_contract.py` pins all three halves: the pair's spelling in the source and
+  in this block, the `reveal_type` inference a class token keeps when nothing conflicts, and the
+  rejection of `number: int = await container.resolve(Config)` by a checker run.
 - `Depends[T]` and `Inject(token)` live in annotations; the resolved value keeps the annotated
   type for static checkers even when the runtime token is a string or `Token`.
 - `py.typed` is shipped; the typing test suite runs `mypy --strict` and `pyright` over the §5.4

@@ -1745,10 +1745,17 @@ class DIContainer:
     # ``await container.resolve(Config)`` is a ``Config`` rather than ``Any``.
     # A generic alias is typed too, because ``list[T]`` is itself a
     # ``type[...]`` expression, so a multi-binding keeps its element type.
-    # A string, a ``Token`` or an instance is not a type, so those keep the
-    # untyped ``Any`` shape of the fallback. Both variants are declaration-only
-    # and are excluded from coverage by the ``@overload`` entry in
-    # ``exclude_lines``.
+    #
+    # The fallback names the two *non-class* token kinds the surface documents
+    # -- a string and a :class:`~lauren_di.Token` -- instead of ``Any``. ``Any``
+    # matches a class token too, and mypy resolves an overload with the
+    # assignment's declared type in view: with an ``Any`` fallback,
+    # ``number: int = await container.resolve(Config)`` silently took the
+    # untyped variant and passed, while pyright rejected the same line. Naming
+    # the non-class kinds leaves a class token one candidate, so both checkers
+    # report the conflict (§5.6). The implementation below keeps ``token: Any``:
+    # the overloads are declaration-only, so the runtime still accepts any
+    # hashable key, and a host using an exotic key adds a cast.
     @overload
     async def resolve(
         self,
@@ -1762,7 +1769,7 @@ class DIContainer:
     @overload
     async def resolve(
         self,
-        token: Any,
+        token: str | Token,
         *,
         request_cache: dict[Any, Any] | None = None,
         values: Mapping[Any, Any] | None = None,
@@ -1790,6 +1797,13 @@ class DIContainer:
         declared that means every row — the flat registry — and once anything
         is declared it means the module's own rows, global rows, and its
         grants; an undeclared module raises rather than widening (MV-22).
+
+        The two ``@overload`` variants are the *static* surface (PRD 01 §5.6): a
+        class token resolves to an instance of that class, a string or a
+        :class:`~lauren_di.Token` to the untyped shape. Any other hashable key
+        still resolves here — the overloads are declaration-only and this
+        signature is ``token: Any`` — but a host that registers one spells the
+        call as ``cast(Any, key)`` so both checkers agree with the runtime.
         """
         values = values or {}
         if token in values:

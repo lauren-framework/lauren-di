@@ -15,6 +15,15 @@ The same treatment is applied to ``scope()``: §5.3.3 used to name the
 which is neither. It now says ``ResolutionScope`` -- the class, which *is* its
 own context manager -- and the row, the source spelling and both call shapes are
 asserted here.
+
+The §5.6 overload pair is asserted the same way, because its shape is what makes
+a *checker* catch a misuse rather than a human: the fallback names the two
+non-class token kinds (``str`` and ``Token``) instead of ``Any``, so a class
+token has exactly one candidate and ````number: int = await
+container.resolve(Config)```` is reported instead of silently taking the untyped
+variant. That is pinned three ways here -- the source spelling, the §5.6 block
+that documents it, and a real ``mypy --strict`` run over a fixture that misuses
+the call and over one that reads the ``reveal_type`` notes.
 """
 
 from __future__ import annotations
@@ -22,6 +31,10 @@ from __future__ import annotations
 import ast
 import inspect
 import pathlib
+import re
+import subprocess
+import sys
+import textwrap
 from collections.abc import Mapping
 from types import MappingProxyType
 from typing import Annotated, Any, get_type_hints
@@ -42,10 +55,13 @@ def _signature(func: Any) -> dict[str, inspect.Parameter]:
     return dict(inspect.signature(func).parameters)
 
 
+#: The repository root, used by the checker run below: ``mypy`` reads
+#: ``pyproject.toml`` from its working directory, and ``lauren_di`` must be
+#: importable as the session installed it.
+REPO_ROOT = pathlib.Path(__file__).resolve().parents[2]
+
 #: PRD 01 is the normative surface; the §5.3.3 rows are read from it, never copied.
-PRD_01 = (
-    pathlib.Path(__file__).resolve().parents[2] / "prds" / "01-product-definition-and-public-api.md"
-)
+PRD_01 = REPO_ROOT / "prds" / "01-product-definition-and-public-api.md"
 
 #: Placeholder for the markdown-escaped ``\|`` inside a table cell.
 _PIPE = "\x00"
@@ -108,21 +124,23 @@ def test_resolve_signature_matches_prd_5_3_3() -> None:
     assert hints["return"] is Any
 
 
-def _overload_annotations() -> list[dict[str, str]]:
-    """The ``@overload`` variants of ``DIContainer.resolve``, as annotation text.
+def _resolve_overload_annotations(
+    source: str, class_name: str = "DIContainer"
+) -> list[dict[str, str]]:
+    """The ``@overload`` variants of ``resolve`` in ``source``, as annotation text.
 
     ``typing.get_overloads`` is 3.11+, and 3.10's ``typing.overload`` keeps no
     registry at all, so the variants are read from the source with ``ast``. That
     works on every supported interpreter instead of skipping on the oldest one,
     and it asserts the *spelling* the PRD fixes rather than a ``repr`` of an
-    evaluated hint.
+    evaluated hint. ``source`` is a parameter because the same extraction is run
+    over ``_container.py`` and over PRD 01 §5.6's code block, so the document and
+    the implementation are compared rather than each compared with a copy.
     """
-    module_path = inspect.getsourcefile(DIContainer)
-    assert module_path is not None, "DIContainer has no source file"
-    tree = ast.parse(pathlib.Path(module_path).read_text(encoding="utf-8"))
+    tree = ast.parse(source)
 
     for node in ast.walk(tree):
-        if not isinstance(node, ast.ClassDef) or node.name != DIContainer.__name__:
+        if not isinstance(node, ast.ClassDef) or node.name != class_name:
             continue
         variants: list[dict[str, str]] = []
         for item in node.body:
@@ -144,7 +162,24 @@ def _overload_annotations() -> list[dict[str, str]]:
             )
         return variants
 
-    raise AssertionError(f"class {DIContainer.__name__} not found in {module_path}")
+    raise AssertionError(f"class {class_name} not found in the source")
+
+
+def _overload_annotations() -> list[dict[str, str]]:
+    """The ``@overload`` variants of ``DIContainer.resolve`` as shipped."""
+    module_path = inspect.getsourcefile(DIContainer)
+    assert module_path is not None, "DIContainer has no source file"
+    return _resolve_overload_annotations(pathlib.Path(module_path).read_text(encoding="utf-8"))
+
+
+def _prd_5_6_source() -> str:
+    """The single fenced python block under PRD 01 §5.6."""
+    text = PRD_01.read_text(encoding="utf-8")
+    start = text.index("### 5.6 Typing contract")
+    end = text.index("\n## 6.", start)
+    blocks = re.findall(r"```python\n(.*?)```", text[start:end], re.DOTALL)
+    assert len(blocks) == 1, f"§5.6 should hold exactly one python block, found {len(blocks)}"
+    return blocks[0]
 
 
 def test_resolve_overloads_share_the_widened_parameter_annotations() -> None:
@@ -316,3 +351,146 @@ def test_values_are_visible_through_an_explicit_scope() -> None:
             return await scope.resolve(CFG)
 
     assert run(scenario()) == "from-scope"
+
+
+# ---------------------------------------------------------------------------
+# §5.6 -- the overload pair, and the asymmetry it exists to close
+# ---------------------------------------------------------------------------
+
+#: A misuse fixture: the declared type contradicts the class token. This is the
+#: line `mypy --strict` accepted while the fallback overload said ``token: Any``.
+_MISUSE_FIXTURE = textwrap.dedent(
+    '''
+    """Written by tests/unit/test_resolve_contract.py; not part of the suite."""
+    from __future__ import annotations
+
+    from lauren_di import DIContainer
+
+
+    class Config:
+        dsn: str = "sqlite:///app.db"
+
+
+    async def misuse(container: DIContainer) -> None:
+        number: int = await container.resolve(Config)
+    '''
+)
+
+#: The inference fixture: no conflicting context, so the notes are the assertions.
+_INFERENCE_FIXTURE = textwrap.dedent(
+    '''
+    """Written by tests/unit/test_resolve_contract.py; not part of the suite."""
+    from __future__ import annotations
+
+    from lauren_di import DIContainer, Token
+
+
+    class Config:
+        dsn: str = "sqlite:///app.db"
+
+
+    async def shapes(container: DIContainer) -> None:
+        reveal_type(await container.resolve(Config))
+        reveal_type(await container.resolve("config"))
+        reveal_type(await container.resolve(Token("cfg")))
+    '''
+)
+
+
+def _run_mypy(tmp_path: pathlib.Path, source: str) -> subprocess.CompletedProcess[str]:
+    """Type-check ``source`` with the pinned ``mypy --strict``.
+
+    ``mypy`` arrives with the ``dev`` extra, so the checker this test trusts is
+    the checker ``nox -s typing`` runs, not whatever happens to be on ``PATH``.
+    """
+    fixture = tmp_path / "fixture.py"
+    fixture.write_text(source, encoding="utf-8")
+    return subprocess.run(
+        [
+            sys.executable,
+            "-m",
+            "mypy",
+            "--strict",
+            "--cache-dir",
+            str(tmp_path / ".mypy_cache"),
+            str(fixture),
+        ],
+        cwd=REPO_ROOT,
+        capture_output=True,
+        text=True,
+        timeout=300,
+        check=False,
+    )
+
+
+def test_the_fallback_overload_cannot_match_a_class_token() -> None:
+    """§5.6: the untyped variant names the two *non-class* token kinds.
+
+    ``Any`` would match a class token as well, which is what let mypy take the
+    untyped variant on a conflicting assignment; naming ``str | Token`` leaves a
+    class token one candidate, so the conflict is reported rather than absorbed.
+    """
+    overloads = _overload_annotations()
+
+    assert len(overloads) == 2, f"expected the §5.6 pair, found {overloads}"
+    assert overloads[0]["token"] == "type[T]"
+    assert overloads[1]["token"] == "str | Token"
+
+
+def test_the_scope_overloads_mirror_the_container_pair() -> None:
+    """``ResolutionScope.resolve`` is documented as the same pair (§5.3.3, §5.6).
+
+    A mirror that drifts would re-open the hole through the scope path, where
+    §5.2's quickstart resolves request-scoped collaborators.
+    """
+    module_path = inspect.getsourcefile(ResolutionScope)
+    assert module_path is not None, "ResolutionScope has no source file"
+    source = pathlib.Path(module_path).read_text(encoding="utf-8")
+    scope_overloads = _resolve_overload_annotations(source, "ResolutionScope")
+
+    assert len(scope_overloads) == 2, f"expected the §5.6 pair, found {scope_overloads}"
+    assert scope_overloads[0]["token"] == "type[T]"
+    assert scope_overloads[1]["token"] == _overload_annotations()[1]["token"]
+
+
+def test_prd_5_6_documents_the_pair_the_source_ships() -> None:
+    """The §5.6 block is normative, so it is compared with the source, not trusted."""
+    documented = _resolve_overload_annotations(_prd_5_6_source())
+
+    assert documented == _overload_annotations()
+    assert documented[1]["token"] == "str | Token"
+
+
+def test_mypy_rejects_a_class_token_bound_to_a_conflicting_declared_type(tmp_path) -> None:
+    """The misuse the goal names must fail, not merely infer badly.
+
+    With the old ``token: Any`` fallback this fixture type-checked cleanly: mypy
+    resolved the overload with ``int`` in view, found the untyped variant
+    plausible, and returned ``Any``. pyright rejected the same line, so the gate
+    was asymmetric. Both now reject it.
+    """
+    result = _run_mypy(tmp_path, _MISUSE_FIXTURE)
+
+    assert result.returncode != 0, (
+        "mypy accepted `number: int = await container.resolve(Config)`: the §5.6 "
+        f"fallback overload is matching a class token again.\n{result.stdout}"
+    )
+    assert "resolve" in result.stdout, result.stdout
+    assert "Config" in result.stdout, result.stdout
+    assert "int" in result.stdout, result.stdout
+
+
+def test_mypy_keeps_the_inference_the_overloads_promise(tmp_path) -> None:
+    """The rejection above must not have cost the inference §5.6 promises.
+
+    Three notes, in order: the class token stays ``Config``, and the two
+    documented non-class kinds stay ``Any``.
+    """
+    result = _run_mypy(tmp_path, _INFERENCE_FIXTURE)
+
+    assert result.returncode == 0, result.stdout
+    notes = [line for line in result.stdout.splitlines() if "Revealed type is" in line]
+    assert len(notes) == 3, notes
+    assert notes[0].endswith('"fixture.Config"'), notes
+    assert notes[1].endswith('"Any"'), notes
+    assert notes[2].endswith('"Any"'), notes

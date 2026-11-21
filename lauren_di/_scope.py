@@ -35,6 +35,7 @@ from ._errors import DestructError, LifecycleViolationError
 
 if TYPE_CHECKING:
     from . import DIContainer, Provider
+    from ._custom import Token
 
 logger = logging.getLogger("lauren_di")
 
@@ -98,12 +99,15 @@ class ResolutionScope:
         return False
 
     # Overloads (PRD 01 §5.6), mirroring :meth:`DIContainer.resolve`: a class
-    # token is statically typed, every other token keeps the ``Any`` shape.
+    # token is statically typed, and the fallback names the two non-class token
+    # kinds the surface documents rather than ``Any``, so a class token cannot
+    # reach the untyped variant and a conflicting declared type is reported by
+    # both checkers.
     @overload
     async def resolve(self, token: type[T], *, owning_module: type | None = None) -> T: ...
 
     @overload
-    async def resolve(self, token: Any, *, owning_module: type | None = None) -> Any: ...
+    async def resolve(self, token: str | Token, *, owning_module: type | None = None) -> Any: ...
 
     async def resolve(self, token: Any, *, owning_module: type | None = None) -> Any:
         """Resolve ``token`` with this scope's cache and values."""
