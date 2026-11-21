@@ -29,6 +29,7 @@ Design principles
 from __future__ import annotations
 
 import hashlib
+import re
 import shutil
 import subprocess
 import tempfile
@@ -129,6 +130,26 @@ def integration(session: nox.Session) -> None:
     _pytest(session, str(TESTS_DIR / "integration"), "-q")
 
 
+def _coverage_threshold_flags() -> list[str]:
+    """``--precision``/``--fail-under`` read from ``pyproject.toml``.
+
+    Regex rather than ``tomllib`` because the oldest supported interpreter (3.10)
+    has no ``tomllib``; raise rather than default when a key is missing, because a
+    silent default of 0 would mean "enforce nothing" -- the failure mode this gate
+    exists to prevent. ``precision`` is passed explicitly as well as configured:
+    ``coverage report --fail-under`` compares the *displayed* total, so a missing
+    precision would round 75.55 to 76 and quietly widen the gate.
+    """
+    text = (ROOT / "pyproject.toml").read_text(encoding="utf-8")
+    values: dict[str, str] = {}
+    for key in ("precision", "fail_under"):
+        match = re.search(rf"^{key}\s*=\s*(\d+(?:\.\d+)?)", text, re.MULTILINE)
+        if match is None:
+            raise RuntimeError(f"pyproject.toml has no [tool.coverage.report] {key}")
+        values[key] = match.group(1)
+    return [f"--precision={values['precision']}", f"--fail-under={values['fail_under']}"]
+
+
 @nox.session(python=PRIMARY_PYTHON)
 def coverage(session: nox.Session) -> None:
     """Run the suite under branch coverage; fail under the project's gate.
@@ -137,6 +158,12 @@ def coverage(session: nox.Session) -> None:
     ``pyproject.toml`` — one source of truth for this session and CI. The
     vendored ``lauren_di/_typing/`` resolver is omitted there because it is not
     part of the documented surface.
+
+    The threshold is enforced by ``coverage report`` rather than left to
+    ``pytest-cov``: with pytest 9 and pytest-cov 7.1.0 the plugin prints
+    "FAIL Required test coverage of 76% not reached" and still exits 0, so a
+    session that trusted its exit status was green while under the bar.
+    ``coverage report --fail-under`` is the checker's own contract and exits 2.
     """
     _install_package(session, "dev")
     # ``--cov``/``--cov-branch`` are unconditional and precede ``posargs``.
@@ -150,7 +177,19 @@ def coverage(session: nox.Session) -> None:
         "--cov-branch",
         "--cov-report=term-missing",
         "-q",
+        # The parity matrix needs an external reference checkout, so it cannot be
+        # part of a gate that must give the same answer in every environment: CI
+        # (no checkout) measured 75.55 % where a developer with the checkout
+        # measured 77.20 % on the same commit. It still runs in `tests` and
+        # `parity`; only the *measurement* excludes it.
+        "--ignore=tests/parity",
         *session.posargs,
+    )
+    session.run(
+        "coverage",
+        "report",
+        "--format=total",
+        *_coverage_threshold_flags(),
     )
 
 

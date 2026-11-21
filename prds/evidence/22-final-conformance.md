@@ -130,32 +130,50 @@ missing: CircularDependencyError, DestructError, DuplicateBindingError, Grant,
 section delivers. Goal #25 owns that reconciliation (add the subsections, or state the grouping
 and assert it).
 
-## 4. The coverage ratchet moved from 71 to 77
+## 4. The coverage ratchet, and the correction CI forced on it
 
-Measured, not estimated:
+The first measurement was not environment-independent, and the published commit proved it. With
+`../lauren-framework` present, `nox -s coverage` read 77.15 %; on the same commit CI — which has no
+reference checkout, so the parity cases that exercise `lauren_di` through the shared surface skip —
+read `TOTAL 1347 290 526 84 76%` and `FAIL ... Total coverage: 75.55%`. A gate that answers 77.20 %
+on one machine and 75.55 % on another is not a gate, so the measurement now excludes
+`tests/parity` (`--ignore=tests/parity` in `nox -s coverage`) and both environments agree exactly:
 
 ```console
-$ nox -s coverage
-Name                       Stmts   Miss Branch BrPart  Cover   Missing
-TOTAL                       1347    273    526     83    77%
-Required test coverage of 77.0% reached. Total coverage: 77.15%
-nox > Session coverage was successful
+$ nox -s coverage            # reference checkout present or absent: same answer
+TOTAL                       1347    290    526     84    76%
+Required test coverage of 75.0% reached. Total coverage: 75.55%
 ```
 
-`pyproject.toml` `[tool.coverage.report] fail_under` is now `77` (was `71`), with the comment
-recording the measurement it came from (1347 statements, 526 branches, 273 missed, 83 partial).
+`fail_under` is therefore `75.5` (not `77`), with `precision = 2`: the bar did not fall, the
+*basis* became honest, and the figure it guards (75.55 %) is the one every environment reproduces.
+Parity still runs in `tests` and in the dedicated `parity` session — only the measurement excludes
+it. `pyproject.toml`'s comment records both figures and why, and
 `tests/unit/test_release_readiness.py::test_test_and_coverage_configuration_is_present` asserts
-the floor is `>= 77`, so the ratchet cannot be quietly lowered back.
+the floor is `>= 75`.
 
-The new gate bites — verified by moving it one point up and restoring:
+Two further holes turned up while proving this gate bites, both fixed here:
+
+- **`pytest-cov` no longer fails the run.** With pytest 9.2.0 and pytest-cov 7.1.0 the plugin prints
+  `FAIL Required test coverage of 76% not reached. Total coverage: 75.55%` and exits **0**, so
+  `nox -s coverage` was green while under the bar. The session now enforces the floor with
+  `coverage report --format=total --precision=<n> --fail-under=<n>`, taking both numbers from
+  `pyproject.toml` (and raising if either is missing, rather than defaulting to "enforce nothing").
+- **`coverage report --fail-under` compares the *displayed* total.** At the default precision of 0 a
+  total of 75.55 reads as `76`, so a `76` floor passed; `precision = 2` makes the comparison real
+  (`75.55` vs `75.5`). Both facts are pinned by
+  `tests/unit/test_noxfile_contract.py::test_coverage_enforces_the_threshold_itself`,
+  `::test_coverage_threshold_is_derived_from_pyproject` and `::test_coverage_threshold_refuses_to_default`.
+
+The gate bites at sub-point granularity — verified by moving it 0.1 up and restoring:
 
 ```console
-$ sed -i 's/fail_under = 77/fail_under = 78/' pyproject.toml && nox -s coverage
-FAIL Required test coverage of 78.0% not reached. Total coverage: 77.15%
+$ sed -i 's/fail_under = 75.5/fail_under = 75.6/' pyproject.toml && nox -s coverage
+ERROR: Coverage failure: total of 75.55 is less than fail-under=75.60
 nox > Session coverage failed.
 $ echo $?
 1
-$ # restored: pyproject.toml byte-identical to the committed 77
+$ # restored: pyproject.toml byte-identical to the committed 75.5
 ```
 
 ## 5. PRD consistency

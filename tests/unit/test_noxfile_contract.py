@@ -78,6 +78,9 @@ BASE_COVERAGE = [
     "--cov-branch",
     "--cov-report=term-missing",
     "-q",
+    # Parity needs an external checkout, so it is excluded from the measurement:
+    # the gate has to give the same answer in CI as on a developer's machine.
+    "--ignore=tests/parity",
 ]
 
 
@@ -113,6 +116,47 @@ def test_coverage_xml_is_requestable_without_losing_coverage(
     command = only(session, "pytest")
     assert "--cov=lauren_di" in command
     assert "--cov-report=xml" in command
+
+
+def test_coverage_enforces_the_threshold_itself(noxfile: Any, no_install: None) -> None:
+    """The floor is checked by ``coverage report``, not trusted from pytest-cov.
+
+    With pytest 9 and pytest-cov 7.1.0 the plugin prints
+    "FAIL Required test coverage of 76% not reached" and still exits 0, so a
+    session that relied on that exit status was green while under the bar.
+    """
+    session = FakeSession()
+
+    noxfile.coverage(session)
+
+    command = only(session, "coverage")
+    assert command[:3] == ["coverage", "report", "--format=total"]
+
+
+def test_coverage_threshold_is_derived_from_pyproject(noxfile: Any) -> None:
+    """The number and the precision come from ``pyproject.toml``, not a literal."""
+    config = (NOXFILE.parent / "pyproject.toml").read_text(encoding="utf-8")
+    fail_under = re.search(r"^fail_under\s*=\s*(\d+(?:\.\d+)?)", config, re.MULTILINE)
+    precision = re.search(r"^precision\s*=\s*(\d+)", config, re.MULTILINE)
+    assert fail_under is not None and precision is not None
+
+    flags = noxfile._coverage_threshold_flags()
+
+    assert f"--fail-under={fail_under.group(1)}" in flags
+    # Precision is part of the gate: `coverage report --fail-under` compares the
+    # *displayed* total, so at precision 0 a total of 75.55 reads as 76.
+    assert f"--precision={precision.group(1)}" in flags
+
+
+def test_coverage_threshold_refuses_to_default(
+    noxfile: Any, monkeypatch: pytest.MonkeyPatch, tmp_path: pathlib.Path
+) -> None:
+    """A missing ``fail_under`` raises: defaulting to 0 would enforce nothing."""
+    (tmp_path / "pyproject.toml").write_text("[tool.coverage.report]\nprecision = 2\n")
+    monkeypatch.setattr(noxfile, "ROOT", tmp_path)
+
+    with pytest.raises(RuntimeError, match="fail_under"):
+        noxfile._coverage_threshold_flags()
 
 
 @pytest.mark.parametrize("session_name", ["unit", "integration"])

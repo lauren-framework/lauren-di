@@ -237,15 +237,38 @@ def check_reference_freshness() -> list[Violation]:
     target = DOCS / "reference.md"
     if not target.exists():
         return [Violation("docs/reference.md", "reference", "reference.md is missing")]
-    if target.read_text(encoding="utf-8") != rendered:
+    committed = target.read_text(encoding="utf-8")
+    if committed != rendered:
         return [
             Violation(
                 "docs/reference.md",
                 "reference",
-                "page is stale; run `python scripts/build_reference.py`",
+                f"page is stale{_first_difference(committed, rendered)}; "
+                "run `python scripts/build_reference.py`",
             )
         ]
     return []
+
+
+def _first_difference(committed: str, rendered: str) -> str:
+    """``' at line N: file has X, regeneration gives Y'`` for the first mismatch.
+
+    "Page is stale, regenerate it" is true but useless on a machine that cannot
+    reproduce the difference -- which is exactly how this check first failed in
+    CI while passing locally. Naming the line and both spellings makes the
+    divergence diagnosable from the log alone.
+    """
+    old = committed.splitlines()
+    new = rendered.splitlines()
+    for index, (left, right) in enumerate(zip(old, new, strict=False), start=1):
+        if left != right:
+            return f" at line {index}: file has {left!r}, regeneration gives {right!r}"
+    if len(old) != len(new):
+        return (
+            f" at line {min(len(old), len(new)) + 1}: "
+            f"file has {len(old)} lines, regeneration gives {len(new)}"
+        )
+    return ""
 
 
 def check_blocks(*, execute: bool) -> list[Violation]:
