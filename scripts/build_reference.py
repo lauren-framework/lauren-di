@@ -39,6 +39,7 @@ import pathlib
 import re
 import sys
 import types
+import typing
 
 ROOT = pathlib.Path(__file__).resolve().parent.parent
 if str(ROOT) not in sys.path:
@@ -489,15 +490,29 @@ def _clean(text: str) -> str:
     return "\n".join(out)
 
 
+#: The two ways a union alias can be spelled at runtime. ``X | Y`` produces a
+#: ``types.UnionType`` when every operand is a real type, but ``Any | X`` produces
+#: a ``typing.Union`` on 3.10 (``Any`` is a special form there) and a
+#: ``types.UnionType`` on 3.11+. ``Grant`` is exactly that case, so a check that
+#: named only ``types.UnionType`` described the page correctly on 3.11-3.14 and
+#: asserted the wrong thing on 3.10.
+_UNION_ORIGINS: tuple[object, ...] = (types.UnionType, typing.Union)
+
+
+def _is_union_alias(obj: object) -> bool:
+    """Whether ``obj`` is a union alias in either runtime spelling."""
+    return typing.get_origin(obj) in _UNION_ORIGINS
+
+
 def _docstring(name: str, obj: object) -> str | None:
     """The object's own prose, or ``None`` when it has none of its own."""
-    # ``Owner`` and ``Grant`` are PEP 604 union aliases, so ``inspect.getdoc``
-    # hands back ``types.UnionType.__doc__`` -- not their own prose. Detect that
-    # structurally rather than by matching the text: CPython renamed the
-    # docstring from "Represent a PEP 604 union type" to "Represent a union type"
-    # between 3.14.4 and 3.14.10, and a text match silently published
-    # "Represent a union type" as ``Owner``'s description in CI only.
-    if isinstance(obj, types.UnionType):
+    # ``Owner`` and ``Grant`` are union aliases, so ``inspect.getdoc`` hands back
+    # the union type's ``__doc__`` -- not their own prose. Detect that structurally
+    # rather than by matching the text: CPython renamed the docstring from
+    # "Represent a PEP 604 union type" to "Represent a union type" between 3.14.4
+    # and 3.14.10, and a text match silently published "Represent a union type" as
+    # ``Owner``'s description in CI only.
+    if _is_union_alias(obj):
         return None
     doc = inspect.getdoc(obj)
     if doc is None:
