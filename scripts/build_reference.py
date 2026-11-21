@@ -38,6 +38,7 @@ import inspect
 import pathlib
 import re
 import sys
+import types
 
 ROOT = pathlib.Path(__file__).resolve().parent.parent
 if str(ROOT) not in sys.path:
@@ -490,13 +491,21 @@ def _clean(text: str) -> str:
 
 def _docstring(name: str, obj: object) -> str | None:
     """The object's own prose, or ``None`` when it has none of its own."""
+    # ``Owner`` and ``Grant`` are PEP 604 union aliases, so ``inspect.getdoc``
+    # hands back ``types.UnionType.__doc__`` -- not their own prose. Detect that
+    # structurally rather than by matching the text: CPython renamed the
+    # docstring from "Represent a PEP 604 union type" to "Represent a union type"
+    # between 3.14.4 and 3.14.10, and a text match silently published
+    # "Represent a union type" as ``Owner``'s description in CI only.
+    if isinstance(obj, types.UnionType):
+        return None
     doc = inspect.getdoc(obj)
     if doc is None:
         return None
     doc = doc.strip()
     # A dataclass synthesises ``Name(scope=..., ...)`` as its ``__doc__``; that is a
     # signature, not documentation, and printing it twice would be noise.
-    if doc.startswith(f"{name}(") or doc.startswith("Represent a PEP 604 union type"):
+    if doc.startswith(f"{name}("):
         return None
     return _clean(doc)
 
