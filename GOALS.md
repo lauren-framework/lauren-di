@@ -56,7 +56,7 @@ The PRD 01 conformance programme. Evidence, in order:
 |---|---|---|
 | 23 | **verified** | `DIContainer.scope` returns `-> ResolutionScope`; PRD 01 §5.3.3 row, PRD 03 surface table and `tests/typing/reveal_scope_factory.py` agree |
 | 24 | **verified** | Baseline owner-goal column re-derived and made checkable: references are `GOALS.md` positions, each paired with the word that goal uses to describe itself, and `prds/check_consistency.py`'s `owners` check fails when a number is undefined or the word is absent |
-| 25 | pending | PRD 01 §5.4 "one example per named symbol" vs the 18 subsections that exist |
+| 25 | **verified** | PRD 01 §5.4 "one example per named symbol": the 18 subsections became 22 (adding `ResolutionScope`, `Owner`/`Grant`, `building_with`/`active_override_plan`, and one grouped block for the thirteen error leaves), and `tests/docs/test_prd_examples.py::test_every_exported_name_has_an_example` derives the expectation from `lauren_di.__all__` so a new export with no example fails |
 | 26 | **deleted** | Restatement of the packaging goal; superseded by #10 |
 | 27 | pending | Optional `typing_extensions` import vs PRD 01 §5.1/§6.2 |
 | 28 | pending | `Depends[T]`'s static form (instance with `__getitem__` is rejected in annotation position) |
@@ -356,6 +356,26 @@ Rules, because "100 %" is easy to fake:
 - the omit-list and pragma tests fail when a module is omitted or a bare pragma is added;
 - `nox -s ci` green on all five interpreters, and the before/after figures are recorded in
   `prds/evidence/46-full-coverage.md`.
+
+---
+
+### #47 — Untrack `tests/.cassette/`, an agent session recording committed inside the test tree
+
+`tests/.cassette/001c32cb-…/{cassette,approvals}.jsonl` and `meta.json` were committed in
+`5f8a226 feat: first`. They are not fixtures: `cassette.jsonl` is a verbatim transcript of an earlier
+agent session — model name, the full tool schema, and the session's own reasoning — and nothing in
+the repository reads the directory (`grep -rn cassette` outside it finds only unrelated `rich` and
+`pymdownx` vendor strings). It survives only because it sits in a dot-directory, which pytest's
+default collection ignores, and it is absent from `.gitignore`'s "Agent and tool scratch" section.
+
+**Acceptance:**
+- `git rm -r --cached tests/.cassette` and delete the directory; `git ls-files tests/.cassette` is empty;
+- `.gitignore` gains the pattern in the "Agent and tool scratch" section, next to `.agenthicc/`;
+- `tests/unit/test_gitignore_contract.py` covers it in both directions — the path is ignored *and* it
+  is not on the tracked-deliverable list — so re-adding it fails the contract instead of silently
+  dirtying the working tree on every later session;
+- `git status` is clean after a full `nox -s ci` run, which it is not today;
+- the wheel and sdist are byte-identical to the current ones (the directory was never in either).
 
 ---
 

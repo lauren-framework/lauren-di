@@ -19,6 +19,7 @@ block ``run`` cannot make the selector vacuous.
 
 from __future__ import annotations
 
+import ast
 import asyncio
 
 import prd_examples
@@ -31,12 +32,12 @@ SUBSECTIONS = prd_examples.subsections()
 CHECKED = [example for example in EXAMPLES if prd_examples.is_checked(example)]
 RUNNABLE = [example for example in CHECKED if prd_examples.is_runnable(example)]
 
-#: §5.4 currently has one ``####`` subsection per example group, and 18 blocks.
+#: §5.4 currently has one ``####`` subsection per example group, and 22 blocks.
 #: These numbers are pinned: deleting a subsection (and with it the only test of
 #: its behaviour) must be a deliberate PRD change, not a silent one.
-EXPECTED_SUBSECTIONS = 18
-EXPECTED_BLOCKS = 18
-EXPECTED_RUN_BLOCKS = 18
+EXPECTED_SUBSECTIONS = 22
+EXPECTED_BLOCKS = 22
+EXPECTED_RUN_BLOCKS = 22
 
 #: A miniature section exercising every marker the contract understands.
 SYNTHETIC = "\n".join(
@@ -95,7 +96,85 @@ def test_inventory_is_reported(capsys: pytest.CaptureFixture[str]) -> None:
 
     assert capsys.readouterr().out.strip() == report
     assert report == (
-        "18 block(s) collected, 18 checked, 18 marked run, across 18 of 18 subsection(s)"
+        "22 block(s) collected, 22 checked, 22 marked run, across 22 of 22 subsection(s)"
+    )
+
+
+def _referenced_names(source: str) -> set[str]:
+    """Identifiers a block actually uses, excluding what it merely imports.
+
+    ``from lauren_di import DestructError`` mentions the name but demonstrates
+    nothing about it, so import aliases are deliberately not collected: only
+    ``ast.Name`` nodes count. That is what makes "covered by a grouped example"
+    mean *used* in the group rather than *listed at the top of it*.
+    """
+    return {node.id for node in ast.walk(ast.parse(source)) if isinstance(node, ast.Name)}
+
+
+def test_every_exported_name_has_an_example() -> None:
+    """G8's "one canonical example per public name", derived rather than assumed.
+
+    The claim in §2 G8 and §10.1 is that *every* symbol has an example, so the
+    expectation is read from ``lauren_di.__all__`` instead of from a list kept by
+    hand — a new export with no example fails here, which is the only way the
+    claim stays true as the surface grows.
+
+    Two shapes satisfy it, and which one a name gets is decided by the code:
+
+    * a ``####`` heading that names it — the one-symbol-per-example rule as
+      written;
+    * a **grouped** example, which is what the thirteen error leaves use: they
+      differ only by ``code``, so thirteen near-identical blocks would be noise.
+      A name qualifies for that exemption only by being a ``DIError`` subclass,
+      and the whole family then has to appear in one shared block, so a leaf
+      added to ``__all__`` without being added to the group still fails.
+    """
+    import re
+
+    import lauren_di
+
+    headings = "\n".join(SUBSECTIONS)
+
+    def covered_by_heading(name: str) -> bool:
+        # Headings wrap names in backticks, so only word characters are excluded
+        # at the edges -- that still keeps ``Provider`` from matching inside
+        # ``ProviderOverride`` and ``Scope`` from matching inside ``ResolutionScope``.
+        return re.search(rf"(?<!\w){re.escape(name)}(?!\w)", headings) is not None
+
+    error_leaves = {
+        name
+        for name in lauren_di.__all__
+        if name != "DIError"
+        and isinstance(getattr(lauren_di, name), type)
+        and issubclass(getattr(lauren_di, name), lauren_di.DIError)
+    }
+
+    # Every non-error name must own a heading.
+    headless = [
+        name
+        for name in lauren_di.__all__
+        if name not in error_leaves and not covered_by_heading(name)
+    ]
+    assert not headless, f"exported names with no §5.4 subsection of their own: {headless}"
+
+    # Every error leaf must be *used* in some block, and the whole family must
+    # share one -- that shared block *is* the documented grouping. Usage is read
+    # from the AST's ``Name`` nodes rather than from the text, because a name that
+    # is merely imported (``from lauren_di import DestructError``) is not an
+    # example of it; dropping it from the list while leaving the import behind
+    # must still fail.
+    appearances: dict[str, set[str]] = {}
+    for leaf in sorted(error_leaves):
+        blocks = {
+            example.heading for example in CHECKED if leaf in _referenced_names(example.source)
+        }
+        assert blocks, f"error leaf `{leaf}` is used in no §5.4 block"
+        appearances[leaf] = blocks
+
+    grouped = set.intersection(*appearances.values()) if appearances else set()
+    assert grouped, (
+        "the error leaves are not covered by one shared grouped example; "
+        f"per-leaf blocks: { {k: sorted(v) for k, v in appearances.items()} }"
     )
 
 

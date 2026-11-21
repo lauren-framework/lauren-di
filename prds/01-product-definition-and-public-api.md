@@ -613,6 +613,97 @@ custom = use_value(provide="FLAG", value=True)
 assert custom.kind == "value" and custom.value is True and custom.name == "useValue"
 ```
 
+#### `ResolutionScope` — the object `scope()` hands back
+
+`container.scope()` returns the scope itself, not a bare context-manager protocol, so the
+same object works both ways: entered with `async with`, or held and closed explicitly.
+
+```python run
+import asyncio
+from lauren_di import DIContainer, ResolutionScope
+
+async def main() -> None:
+    container = DIContainer()
+    scope: ResolutionScope = container.scope()      # the factory returns the scope itself
+    async with scope as opened:
+        assert opened is scope                      # __aenter__ returns self
+    print(scope.closed, scope.errors)               # True ()
+
+asyncio.run(main())
+```
+
+#### `Owner` / `Grant` — the visibility vocabulary
+
+`Owner` is the module class a row belongs to (`type | None`, `None` meaning app-level). `Grant` is
+one entry in a module's visible set: a bare token, or a `(token, owner)` pair addressing exactly one
+row. Both are type aliases, so `frozenset({Logger})` needs no wrapper.
+
+```python run
+from lauren_di import DIContainer, Grant, Owner
+
+class RepoModule:
+    pass
+
+container = DIContainer()
+grants: frozenset[Grant] = frozenset({Logger, (Cache, RepoModule)})
+container.set_visible(RepoModule, grants)
+
+owner: Owner = RepoModule                           # `type | None`
+assert container.visible_in(RepoModule) >= {Logger, Cache}
+print(owner.__name__, sorted(t.__name__ for t in container.visible_in(RepoModule)))
+```
+
+#### `building_with` / `active_override_plan` — the override context
+
+`building_with(plan)` activates a plan for the container build inside the block, which is how a
+caller applies overrides to a container it does not construct itself. `active_override_plan()`
+reads it back, and returns `None` outside the block.
+
+```python run
+import asyncio
+from lauren_di import (
+    DIContainer, OverridePlan, ProviderOverride, active_override_plan, building_with,
+)
+
+plan = OverridePlan(providers={
+    ConfigService: ProviderOverride(token=ConfigService, kind="value", value=InMemoryConfig()),
+})
+
+with building_with(plan):
+    assert active_override_plan() is plan
+    container = DIContainer()                       # the build picks the active plan up
+    container.register(ConfigService)
+    container.compile()
+    assert isinstance(asyncio.run(container.resolve(ConfigService)), InMemoryConfig)
+
+assert active_override_plan() is None
+```
+
+#### The thirteen error leaves — one family, one `except`
+
+`DIError` above is the base every failure raises. The leaves exist so a caller can catch narrowly,
+but each keeps a distinct `code` and remains catchable as `DIError`, so the grouped form below is
+the canonical example for all thirteen rather than thirteen near-identical blocks.
+
+```python run
+from lauren_di import (
+    CircularDependencyError, DIError, DIScopeViolationError, DecoratorUsageError,
+    DestructError, DuplicateBindingError, InvalidProviderError, LifecycleConfigError,
+    LifecycleViolationError, MetadataInheritanceError, MissingProviderError, OverrideError,
+    ProtocolAmbiguityError, UnresolvableParameterError,
+)
+
+leaves = [
+    CircularDependencyError, DIScopeViolationError, DecoratorUsageError, DestructError,
+    DuplicateBindingError, InvalidProviderError, LifecycleConfigError,
+    LifecycleViolationError, MetadataInheritanceError, MissingProviderError, OverrideError,
+    ProtocolAmbiguityError, UnresolvableParameterError,
+]
+assert all(issubclass(leaf, DIError) for leaf in leaves)   # one `except DIError` catches all
+assert len({leaf.code for leaf in leaves}) == 13           # each leaf keeps its own code
+print(sorted(leaf.code for leaf in leaves))
+```
+
 ### 5.5 Import policy and stability
 
 - `from lauren_di import X` is the only documented import form. Submodule paths
