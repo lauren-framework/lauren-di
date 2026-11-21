@@ -55,7 +55,7 @@ The PRD 01 conformance programme. Evidence, in order:
 | # | Status | Item |
 |---|---|---|
 | 23 | **verified** | `DIContainer.scope` returns `-> ResolutionScope`; PRD 01 §5.3.3 row, PRD 03 surface table and `tests/typing/reveal_scope_factory.py` agree |
-| 24 | pending | Reconcile the baseline's owner-goal column (off by one from #5 upward) |
+| 24 | **verified** | Baseline owner-goal column re-derived and made checkable: references are `GOALS.md` positions, each paired with the word that goal uses to describe itself, and `prds/check_consistency.py`'s `owners` check fails when a number is undefined or the word is absent |
 | 25 | pending | PRD 01 §5.4 "one example per named symbol" vs the 18 subsections that exist |
 | 26 | **deleted** | Restatement of the packaging goal; superseded by #10 |
 | 27 | pending | Optional `typing_extensions` import vs PRD 01 §5.1/§6.2 |

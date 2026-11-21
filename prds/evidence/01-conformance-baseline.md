@@ -446,23 +446,38 @@ Recorded so the audit is not one-sided — these need no work:
 
 | Id | Divergence | Owner goal |
 | --- | --- | --- |
-| B-1 | `__all__` unsorted, appended post-literal; 38-name set spans PRDs 01/05/07 | #2, #5 |
-| B-2 | `resolve` `values`/`request_cache` annotation drift | #4 |
-| B-3 | No `@overload`; mypy non-strict; no pyright; no `tests/typing/` | #3, #12 |
-| B-4 | §5.1 extras sentence wrong | #14 |
-| B-5, B-16 | 3.14 undeclared in classifier/`SUPPORTED_PYTHONS`/CI and absent from built-wheel metadata | #13 |
-| B-6, B-7 | Docs layout, README quickstart | #15 |
-| B-8 | No reference generator / freshness gate | #16 |
-| B-9, B-10 | CHANGELOG G1–G6, parity convention | #17 |
-| B-11 | 8/9 §10 rows absent | #5–#8, #10, #11, #18 |
-| B-12 | §5.4 count corrected 19 → 18 | noted for #7 |
-| B-13 | Coverage ratchet slack | #20 |
+| B-1 | `__all__` unsorted, appended post-literal; 38-name set spans PRDs 01/05/07 | #2 (`normative`), #5 (`derivation`) |
+| B-2 | `resolve` `values`/`request_cache` annotation drift | #4 (`signature`) |
+| B-3 | No `@overload`; mypy non-strict; no pyright; no `tests/typing/` | #3 (`@overload`), #13 (`pyright`) |
+| B-4 | §5.1 extras sentence wrong | #15 (`extras`) |
+| B-5, B-16 | 3.14 undeclared in classifier/`SUPPORTED_PYTHONS`/CI and absent from built-wheel metadata | #14 (`3.14`) |
+| B-6 | Docs layout is pre-§9 | #16 (`docs`) |
+| B-7 | `README.md` quickstart is not §5.2 | #7 (`quickstart`) |
+| B-8 | No reference generator / freshness gate | #17 (`reference`) |
+| B-9, B-10 | CHANGELOG G1–G6, parity convention | #18 (`corpus`) |
+| B-11 | 8 of 9 §10 rows have no implementation | #6 (`public_api`), #7 (`quickstart`), #8 (`prd_examples`), #9 (`non_goals`), #11 (`wheel`), #12 (`framework_imports`), #13 (`typing`), #14 (`3.14`), #20 (`parity`), #21 (`ci`) |
+| B-12 | §5.4 count corrected 19 → 18 | #8 (`prd_examples`) |
+| B-13 | Coverage ratchet slack | #22 (`ratchet`) |
 | B-14 | §6.2 layout | accepted, no action |
-| B-15 | §10's "`Requires-Dist` empty" unachievable; assert no *unconditional* `Requires-Dist` | #9, then #10 |
-| B-17 | RUF022 sorts SCREAMING_CASE first; §5.5 test applies to `lauren_di.__all__` only | noted for #5 |
+| B-15 | §10's "`Requires-Dist` empty" unachievable; assert no *unconditional* `Requires-Dist` | #10 (`packaging`), #11 (`wheel`) |
+| B-17 | RUF022 sorts SCREAMING_CASE first; §5.5 test applies to `lauren_di.__all__` only | #2 (`normative`) |
 
-Goal numbers above are 1-based positions in the live plan at the time of writing; the
-`B-` ids are stable and are the durable reference.
+The `B-` ids are stable and are the durable reference for a divergence. The goal numbers are
+`GOALS.md` positions, not live-runner positions: `GOALS.md` is versioned with the code, so a
+number in it survives plan edits that renumber the runner's queue.
+
+Each reference also carries the word that goal uses to describe itself, and
+`prds/check_consistency.py`'s `owners` check verifies both halves against `GOALS.md` — the number
+must be defined there, and the word must appear in that goal's description. The column previously
+held bare numbers written against one snapshot of the plan; when a goal was later inserted at #5
+every reference from #5 upward shifted by one and silently sent readers to the wrong goal. A
+renumbering that does that again now fails the check instead of misleading a reader.
+
+Two rows were re-derived rather than shifted, because the old text did not correspond to any
+contiguous run: B-11 now names all ten goals that implement a §10 row (the old `#5–#8, #10, #11,
+#18` covered seven goals for eight missing rows and missed typing, interpreters and parity
+entirely), and B-13 points at #22, the goal whose text actually raises the ratchet, rather than at
+the gate-wiring goal that only put the session in CI.
 
 ## Reproduce
 

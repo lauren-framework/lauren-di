@@ -1,9 +1,11 @@
 #!/usr/bin/env python3
 """Cross-PRD consistency check for the ``lauren-di`` PRD set.
 
-Implements the five checks enumerated in ``prds/README.md`` §6, plus a curated
-symbol/default/scope table that encodes the cross-cutting decisions. Run it from
-anywhere::
+Implements the five checks enumerated in ``prds/README.md`` §6, a curated
+symbol/default/scope table that encodes the cross-cutting decisions, and one
+baseline-traceability check (``owners``) that keeps
+``prds/evidence/01-conformance-baseline.md`` pointing at the goals that actually
+closed each divergence. Run it from anywhere::
 
     python3 prds/check_consistency.py
 
@@ -20,6 +22,8 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parent
 README = ROOT / "README.md"
 PRDS = sorted(ROOT.glob("0*.md"))
+BASELINE = ROOT / "evidence" / "01-conformance-baseline.md"
+GOALS = ROOT.parent / "GOALS.md"
 
 # The ten F-series template sections, in order (README §1).
 TEMPLATE = [
@@ -238,6 +242,103 @@ def check_scope() -> None:
     notes.append("scope: no web-framework imports; unguarded `import lauren` samples: 0")
 
 
+def _goal_texts() -> dict[int, str]:
+    """Goal number -> the words ``GOALS.md`` uses to describe that goal.
+
+    ``GOALS.md`` is the only in-repo description of a goal, and it is versioned
+    with the code, so it is the stable thing a reference can be checked against.
+    The three tables describe goals differently -- #1-#22 by range, #23-#35 one
+    row each, #36+ by heading -- so ranges are expanded and each table's
+    descriptive cell is picked by position rather than by guessing.
+    """
+    if not GOALS.exists():
+        return {}
+    text = GOALS.read_text()
+    sections = {
+        "closed": text.split("## 2.")[1].split("## 3.")[0],
+        "carried": text.split("## 3.")[1].split("## 4.")[0],
+        "programme": text.split("## 4.")[1],
+    }
+
+    out: dict[int, str] = {}
+
+    def spread(cell: str, description: str) -> None:
+        # ``#2–#6`` in the closed table, ``34–35`` in the carried one.
+        m = re.fullmatch(r"#?(\d+)(?:[–-]#?(\d+))?", cell)
+        if not m:
+            return
+        lo = int(m.group(1))
+        hi = int(m.group(2) or lo)
+        for n in range(lo, hi + 1):
+            out[n] = description
+
+    # ``| #2–#6 | Delivered | Evidence |``
+    for row in re.findall(r"^\|(.+)\|$", sections["closed"], re.M):
+        cells = [c.strip() for c in row.split("|")]
+        if len(cells) >= 2:
+            spread(cells[0], cells[1])
+    # ``| 23 | **verified** | Item |``
+    for row in re.findall(r"^\|(.+)\|$", sections["carried"], re.M):
+        cells = [c.strip() for c in row.split("|")]
+        if len(cells) >= 3:
+            spread(cells[0], cells[2])
+    # ``### #36 — Title``
+    for m in re.finditer(r"^### #(\d+) — (.+)$", sections["programme"], re.M):
+        out[int(m.group(1))] = m.group(2)
+    return out
+
+
+def check_owners() -> None:
+    """Check 6: every baseline owner reference resolves to the goal that closed it.
+
+    ``prds/evidence/01-conformance-baseline.md`` ends with a work queue naming, per
+    divergence, the goal that fixed it. Those were bare numbers written against one
+    snapshot of the plan; when a goal was inserted at #5 every reference from #5 up
+    shifted by one and sent readers to the wrong goal -- a defect no other check could
+    see, because both the number and the table stayed well-formed.
+
+    Each reference now also carries the word that goal uses to describe itself, and
+    both halves are checked: the number must be defined in ``GOALS.md``, and the word
+    must appear in that goal's description. Pointing at the wrong goal therefore
+    fails here rather than silently misdirecting a reader.
+    """
+    if not BASELINE.exists():
+        fail("owners", f"missing baseline: {BASELINE}")
+        return
+    goals = _goal_texts()
+    if not goals:
+        fail("owners", f"cannot read goal descriptions from {GOALS}")
+        return
+
+    refs = 0
+    for line in BASELINE.read_text().splitlines():
+        if not line.startswith("| B-"):
+            continue
+        cells = [c.strip() for c in line.strip().strip("|").split("|")]
+        if len(cells) < 3:
+            fail("owners", f"malformed work-queue row: {line.strip()}")
+            continue
+        divergence, owner = cells[0], cells[2]
+        pairs = re.findall(r"#(\d+) \(`([^`]+)`\)", owner)
+        if not pairs:
+            if "no action" not in owner:
+                fail("owners", f"{divergence}: owner cell names no goal and no 'no action'")
+            continue
+        for number, word in pairs:
+            n = int(number)
+            refs += 1
+            if n not in goals:
+                fail("owners", f"{divergence}: goal #{n} is not defined in GOALS.md")
+            elif word.lower() not in goals[n].lower():
+                fail(
+                    "owners",
+                    f"{divergence}: #{n} is described as {goals[n]!r} in GOALS.md, "
+                    f"which does not contain {word!r}",
+                )
+
+    notes.append(f"owners: {refs} baseline owner reference(s) resolve to the goal that closed them")
+
+
 def main() -> int:
     check_index()
     check_template()
@@ -246,6 +347,7 @@ def main() -> int:
     check_decisions()
     check_symbols()
     check_scope()
+    check_owners()
 
     print("lauren-di PRD consistency check")
     print("=" * 60)
