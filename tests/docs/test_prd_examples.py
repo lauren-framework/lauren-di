@@ -189,6 +189,61 @@ def test_every_exported_name_has_an_example() -> None:
 _ROW = re.compile(r"^\|\s*One usage example per named symbol\s*\|(.+?)\|\s*$", re.MULTILINE)
 
 
+def test_no_section_5_4_block_puts_depends_in_annotation_position() -> None:
+    """§5.5: ``Depends[T]`` is a runtime spelling, so no checker accepts it as a type.
+
+    §5.4 is the section the typing gate type-checks (§10's Typing row), so a block that
+    annotates ``session: Depends[make_session]`` makes the document's own example
+    untypable — mypy reports ``Variable "Depends" is not valid as a type`` and pyright
+    ``Variable not allowed in type expression``. The spelling belongs where it is
+    *evaluated* (``assert Depends[X] is X``), which is how §5.4 now writes it; this test
+    keeps it that way, in both directions of the same rule §5.5 states.
+    """
+    offenders = [
+        f"{example.location}:{line} {text}"
+        for example in EXAMPLES
+        for line, text in _depends_in_annotation_position(example.source)
+    ]
+
+    assert offenders == [], (
+        "§5.4 puts `Depends[...]` in annotation position, which mypy and pyright both reject "
+        f"(§5.5): {offenders}"
+    )
+
+
+def _depends_in_annotation_position(source: str) -> list[tuple[int, str]]:
+    """Every ``Depends[...]`` used where a checker reads a *type*, with its line number."""
+    tree = compile(
+        source,
+        "<§5.4 block>",
+        "exec",
+        flags=ast.PyCF_ONLY_AST | ast.PyCF_ALLOW_TOP_LEVEL_AWAIT,
+        dont_inherit=True,
+    )
+    found: list[tuple[int, str]] = []
+
+    def collect(annotation: ast.expr | None) -> None:
+        for node in ast.walk(annotation) if annotation is not None else ():
+            if (
+                isinstance(node, ast.Subscript)
+                and isinstance(node.value, ast.Name)
+                and node.value.id == "Depends"
+            ):
+                found.append((node.lineno, ast.unparse(node)))
+
+    for node in ast.walk(tree):
+        if isinstance(node, ast.AnnAssign):
+            collect(node.annotation)
+        elif isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
+            collect(node.returns)
+            arguments = [*node.args.posonlyargs, *node.args.args, *node.args.kwonlyargs]
+            for argument in [*arguments, node.args.vararg, node.args.kwarg]:
+                if argument is not None:
+                    collect(argument.annotation)
+
+    return found
+
+
 def test_the_acceptance_row_states_the_rule_the_section_follows() -> None:
     """§10.1's row must not claim a shape §5.4 does not have.
 

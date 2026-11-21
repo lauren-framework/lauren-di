@@ -23,6 +23,7 @@ from __future__ import annotations
 from typing import Annotated, Any
 
 from lauren_di import (
+    Depends,
     DIContainer,
     DIError,
     Inject,
@@ -110,11 +111,12 @@ class CachedRepository:
 
 @injectable()
 class UserRepo:
-    # §5.4 writes this field as ``Depends[Session]``. That spelling is a runtime
-    # alias (``Depends[T] is T``) which *neither* mypy nor pyright accepts in an
-    # annotation ("Variable not allowed in type expression"), so this fixture
-    # uses the resolved type; the gap is tracked as its own goal rather than
-    # papered over here.
+    # §5.4 writes this field as ``Depends[Session]``. The spelling is evaluated at runtime
+    # (``Depends[T] is T``) but it is not a type form — mypy rejects it with "Variable
+    # "Depends" is not valid as a type", pyright with "Variable not allowed in type
+    # expression" — so §5.5's rule is that a typed codebase annotates the resolved type,
+    # which is the same token (D-25). A class cannot stand in either: ``Depends[T]`` would
+    # then mean the wrapper, and a function provider is not a valid type argument.
     session: Session
 
 
@@ -122,6 +124,17 @@ class UserRepo:
 class AuditRepo:
     def __init__(self, users: UserRepo) -> None:
         self.users = users
+
+
+def depends_is_a_runtime_spelling() -> None:
+    """§5.5: the spelling is *evaluated*, so a checker sees a subscription, not a type.
+
+    ``Depends[Session]`` is a valid expression returning ``Any`` to a checker and
+    ``Session`` at runtime; the annotation is what has to name the resolved type.
+    """
+    token = Depends[Session]
+    reveal_type(token)  # expect: Any
+    assert token is Session
 
 
 def annotations_keep_the_annotated_type(repository: Repository) -> None:

@@ -233,7 +233,7 @@ document alone:
 | `injectable` | decorator factory | `injectable(*args: Any, scope: Scope = Scope.SINGLETON, provides: Sequence[type] \| None = None, multi: bool = False) -> Callable[[T], T]` | Stable | 02 |
 | `post_construct` | method decorator | `post_construct(fn: F) -> F` | Stable | 03 |
 | `pre_destruct` | method decorator | `pre_destruct(fn: F) -> F` | Stable | 03 |
-| `Depends` | declaration marker | `Depends[T] is T` — a spelling-only alias; no marker object and no `Annotated` wrapper is created (D-25) | Stable | 04 |
+| `Depends` | declaration marker | `Depends[T] is T` — a spelling-only alias; no marker object and no `Annotated` wrapper is created (D-25). A runtime spelling only: `x: Depends[T]` is not a type expression, so §5.5 states what a typed codebase writes instead | Stable | 04 |
 | `Inject` | declaration helper | `Inject(token: Any) -> InjectMarker` | Stable | 04 |
 | `OptionalDep` | declaration wrapper | `OptionalDep(token: Any)` | Stable | 04 |
 
@@ -483,6 +483,10 @@ class CachedRepository:
 
 #### `Depends` — explicit DI at a parameter or field
 
+`Depends[T]` is a **runtime** spelling: it evaluates to `T`, so the container receives the bare
+token and never a marker object. It is not a *type form* — neither checker accepts it in
+annotation position — and §5.5 states the rule a typed codebase follows instead.
+
 ```python run
 from lauren_di import Depends, injectable
 
@@ -490,13 +494,18 @@ from lauren_di import Depends, injectable
 def make_session(cfg: Config) -> Session:
     return Session(cfg.dsn)
 
+# The spelling is *evaluated*, not interpreted: `Depends[X]` is `X` for any X, including a
+# function provider — a token no checker would accept as a type argument.
+assert Depends[make_session] is make_session
+assert Depends[Session] is Session
+
 @injectable()
 class UserRepo:
-    session: Depends[make_session]                 # field injection of a function provider
+    session: Session                              # the token `Depends[Session]` produces
 
 @injectable()
 class AuditRepo:
-    def __init__(self, users: Depends[UserRepo]) -> None:   # explicit in the constructor
+    def __init__(self, users: UserRepo) -> None:  # `Depends[UserRepo]` is `UserRepo`
         self.users = users
 ```
 
@@ -726,6 +735,19 @@ print(sorted(leaf.code for leaf in leaves))
   (`lauren_di._internal`) are not part of the API.
 - `__all__` is normative and sorted; a test asserts it equals §5.3 exactly (no undocumented
   exports, no missing names).
+- **`Depends[T]` is a runtime spelling, not a type form.** It evaluates to `T` (§5.4), which is what
+  makes it a spelling rather than a marker (D-25) — but a subscripted *value* is not a type
+  expression, so `x: Depends[T]` does not type-check: mypy reports
+  `Variable "Depends" is not valid as a type [valid-type]` and pyright
+  `reportInvalidTypeForm: Variable not allowed in type expression`. Making `Depends` a class does
+  not fix it, and this is the reason the spelling is documented as runtime-only rather than
+  repaired: `Depends[T]` would then *mean* `Depends[T]`, so `repo.session.dsn` becomes an attribute
+  error on the wrapper, and a function provider is not a valid type argument at all
+  (`Function "make_session" is not valid as a type`). A typed codebase annotates the resolved type
+  — `session: Session`, the same token the spelling produces — and writes the spelling only where
+  it is *evaluated*, e.g. `assert Depends[Session] is Session`. §5.4's example is written that way;
+  `tests/docs/test_prd_examples.py` fails if a §5.4 block puts the spelling in annotation position,
+  and `tests/unit/test_public_api.py` fails if this bullet stops stating the rule.
 - **Stable** names may be added to within a minor release but not renamed or removed before a
   major release, with the exception of `Provider`'s field set (additive only) and the error
   leaves (additive only).

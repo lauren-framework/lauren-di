@@ -63,6 +63,13 @@ class _DependsAlias:
     ``Annotated`` wrapper reaches the container.  The spelling exists for
     readers coming from FastAPI and for symmetry with ``Inject``; the
     runtime token is always the bare type.
+
+    It is a *runtime* spelling: a subscripted value is not a type expression,
+    so neither mypy nor pyright accepts ``x: Depends[T]``.  A class cannot
+    stand in either — ``Depends[T]`` would then mean the wrapper rather than
+    ``T``, and a function provider is not a valid type argument — so a typed
+    codebase annotates the resolved type, which is the same token (PRD 01
+    §5.5).
     """
 
     __slots__ = ()

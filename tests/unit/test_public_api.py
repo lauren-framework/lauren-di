@@ -360,6 +360,52 @@ def test_depends_is_a_spelling_alias_not_a_marker() -> None:
     assert repr(lauren_di.Depends) == "Depends"
 
 
+def test_depends_accepts_a_token_no_type_could_name() -> None:
+    """§5.5: the spelling is evaluated, so its argument need not be a type at all.
+
+    A function provider is a token (PRD 02 R-23), and it is exactly the case that makes
+    a *class* unable to stand in for the alias: ``Depends[make_session]`` is a valid
+    expression and an invalid type argument. Runtime identity is the whole contract, so
+    it is asserted for the argument a checker could never accept.
+    """
+
+    def make_session() -> str:
+        return "session"
+
+    assert lauren_di.Depends[make_session] is make_session
+    assert typing.get_origin(lauren_di.Depends[make_session]) is None
+
+
+def test_the_prd_states_that_depends_is_a_runtime_spelling() -> None:
+    """§5.5 is the rule a typed codebase follows, so the PRD has to keep stating it.
+
+    The invariant above is only half the contract. §5.4's example annotates the resolved
+    type rather than the spelling, and §5.5's bullet is what tells a reader why — including
+    that a class cannot stand in for the alias. If the bullet is deleted or softened, the
+    next edit writes ``x: Depends[T]`` again and the typing gate rejects the PRD's own
+    example, so the wording is checked instead of trusted.
+    """
+    section = _region(_read(PRD01), r"^### 5\.5 ", r"^### 5\.6 ")
+    bullet = next(
+        (
+            block
+            for block in re.split(r"\n(?=- )", section)
+            if block.startswith("- **`Depends[T]` is a runtime spelling")
+        ),
+        None,
+    )
+    assert bullet is not None, "§5.5 no longer states that `Depends[T]` is a runtime spelling"
+
+    for claim in (
+        "runtime spelling",
+        "not a type form",
+        "not valid as a type",  # mypy's message
+        "reportInvalidTypeForm",  # pyright's rule
+        "resolved type",  # what a typed codebase writes instead
+    ):
+        assert claim in bullet, f"§5.5's rule no longer states {claim!r}"
+
+
 def test_owner_and_grant_are_type_aliases_of_the_documented_shape() -> None:
     """§5.3.2: both are ``TypeAlias`` declarations, not classes.
 
