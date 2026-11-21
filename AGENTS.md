@@ -97,6 +97,7 @@ the code is a bug in one of the two.
 
 | Question | File |
 |---|---|
+| What is being built next, and how is "done" proved? | `GOALS.md` |
 | What does the public surface promise? | `prds/01-product-definition-and-public-api.md` |
 | Why does registration behave this way? | `prds/02-core-container-and-provider-registration.md` |
 | Scope rules and lifecycle ordering | `prds/03-scopes-lifecycle-and-disposal.md` |

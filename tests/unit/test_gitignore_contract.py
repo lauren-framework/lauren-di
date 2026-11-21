@@ -77,6 +77,7 @@ TRACKED: tuple[str, ...] = (
     "CHANGELOG.md",
     "CLAUDE.md",
     "CONTRIBUTING.md",
+    "GOALS.md",
     "LICENSE",
     "README.md",
     "docs-requirements.txt",
