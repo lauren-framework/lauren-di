@@ -332,7 +332,7 @@ Dependencies come from `inspect.signature(cls)` — the *class* as a callable �
 
 ```python
 from typing import Annotated
-from lauren_di import Depends, Inject, injectable
+from lauren_di import Inject, injectable
 
 @injectable()
 class ReportService:
@@ -340,7 +340,7 @@ class ReportService:
         self,
         repo: ReportRepo,                           # by type
         clock: Annotated[Clock, Inject("CLOCK")],   # by explicit token
-        users: Depends[UserRepo],                   # explicit, same effect as `users: UserRepo`
+        users: UserRepo,                            # `Depends[UserRepo]` is the same token (D-25)
         limit: int = 100,                           # annotated + default = optional dep
         verbose=False,                              # no annotation + default = ignored
         *args,
@@ -357,7 +357,7 @@ class ReportService:
 | `x: T` | Yes | `T` | `MissingProviderError` at compile/resolve |
 | `x: T = default` | Yes | `T` | the default is used (dependency is optional) |
 | `x: Annotated[T, Inject(tok)]` | Yes | `tok` (any hashable: type, `str`, `Token`) | `MissingProviderError` |
-| `x: Depends[T]` (which *is* `x: T`; D-25) | Yes | `T` | `MissingProviderError` |
+| `x: Depends[T]` (a runtime spelling that *is* `x: T`; D-25) | Yes | `T` | `MissingProviderError` — write `x: T` in a typed codebase (PRD 01 §5.5) |
 | `x: "SomeType"` (resolvable string) | Yes | the resolved type | as a normal dep |
 | `x: "NotDefinedAnywhere"` (unresolvable) | Yes, as a **string token** | the raw string | `MissingProviderError: No provider for NotDefinedAnywhere` |
 | `def __init__(self, x: T, /)` — positional-only, would be collected | **No — registration fails** (D-19) | — | `UnresolvableParameterError` |
@@ -396,15 +396,24 @@ Field injection exists so a plain class can receive collaborators without writin
 deliberately narrow: **most annotations are data, not dependencies.**
 
 ```python
-from lauren_di import Depends, injectable
+from typing import Annotated
+from lauren_di import Inject, injectable
 
 @injectable()
 class AuditService:
     logger: Logger                     # injected: no default, injectable type
-    clock: Depends[make_clock]         # injected: explicit dependency marker
+    clock: Annotated[Clock, Inject(make_clock)]   # injected: the factory's token (§5.7)
     name: str = "audit"                # NOT injected: class-body default
     count: int                         # NOT injected: primitive type
 ```
+
+The `clock` line is the one that needs a note. `Depends[make_clock]` is the *runtime* spelling of
+the same token — it evaluates to the function, so the field's token is the function — but a
+function is not a type, so a field annotated with it fails gate 4/6 (the hint is not a type) and is
+skipped **silently**, exactly like `count: int`. `Annotated[Clock, Inject(make_clock)]` is the
+spelling that works in both worlds: gate 5 short-circuits the type gate, the container resolves the
+function's token, and a checker sees `Clock`. PRD 01 §5.5 states the rule; `tests/unit/` pins the
+gate, so a future edit cannot re-promise injection for a non-type annotation.
 
 Gates, in order — all must pass:
 
@@ -478,7 +487,8 @@ behaviour and PRD 08 lists the docstring as a documentation defect to fix upstre
 Any decorated non-class callable becomes a provider whose **token is the function object**:
 
 ```python
-from lauren_di import Depends, injectable
+from typing import Annotated
+from lauren_di import Inject, injectable
 
 @injectable()
 def make_session(cfg: Config) -> Session:
@@ -486,17 +496,19 @@ def make_session(cfg: Config) -> Session:
 
 @injectable()
 class UserRepo:
-    session: Depends[make_session]   # depend on the factory by reference
-    def __init__(self, sessions: make_session) -> None:  # or by annotation when it is a type
-        self.sessions = sessions
+    session: Annotated[Session, Inject(make_session)]   # depend on the factory by reference
 ```
 
 Rules:
 
 - The function's **parameters** are its dependencies (same rules as §5.5, including `Inject` and
   defaults); its **return annotation** plays no runtime role — it is documentation and typing only.
-- The function's own token is the function, so `resolve(make_session)` works and `Depends[make_session]`
-  is the idiomatic way to depend on it.
+- The function's own token is the function, so `resolve(make_session)` works. `Depends[make_session]`
+  is the *runtime* spelling of that token — it evaluates to the function, so the container receives
+  the function as the token — but a function is not a type, so a field annotated with it is skipped
+  by the field gates (§5.6). A typed codebase writes `Annotated[Session, Inject(make_session)]`,
+  which resolves the same token and keeps `Session` for checkers (PRD 01 §5.5); the spelling is
+  used where it is *evaluated*, e.g. `assert Depends[make_session] is make_session`.
 - The return value is the dependency. If it is awaitable (`async def`), it is awaited.
 - `provides=[...]` binds extra tokens to the same provider (PRD 04).
 - Duplicate registration of the same function raises `DuplicateBindingError`.

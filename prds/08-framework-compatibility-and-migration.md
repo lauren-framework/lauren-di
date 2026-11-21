@@ -626,7 +626,7 @@ Each row is one invariant, the fixture that establishes it, and the outcome both
 | P-2 | A singleton is cached per container | `container()`, two `resolve` calls | same object; a second container yields a different one |
 | P-3 | A declared value token is supplied out of band | `backend.value_token()` + `container(value_tokens=…)` | resolved attribute **is** the sentinel object |
 | P-4 | A missing provider names the token | `@injectable` depending on an unregistered class | `MissingProviderError` with `detail["token"]` on both; library raises at `compile()`, reference at `compile()` for this shape (`E-433`) |
-| P-5 | Class-body field injection honours `Depends[T]` | `@injectable` with `x: Depends[Repo]` | field populated from the container |
+| P-5 | Class-body field injection honours the annotation's token (`Depends[T]` is `T`, D-25) | `@injectable` with `x: Repo` (`Annotated[Repo, Inject(fn)]` for a function token) | field populated from the container |
 | P-6 | An HTTP marker is not a DI declaration | field annotated `Annotated[str, Path]` | **divergence:** reference raises `MissingProviderError('str')` (`E-404`); library leaves the field alone |
 | P-7 | Scope narrowing violation is rejected | singleton depending on a `REQUEST` provider | `DIScopeViolationError` with `dependent_scope`/`dependency_scope` |
 | P-8 | `multi=True` collects into `list[T]` | two multi registrations of the same token | `resolve(list[T])` returns both, registration order |

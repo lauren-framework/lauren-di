@@ -118,7 +118,9 @@ Any decorated non-class callable becomes a provider whose **token is the functio
 object**:
 
 ```python
-from lauren_di import Depends, injectable
+from typing import Annotated
+
+from lauren_di import Inject, injectable
 
 
 @injectable()
@@ -139,13 +141,18 @@ def make_session(cfg: Config) -> Session:
 
 @injectable()
 class UserRepo:
-    session: Depends[make_session]  # depend on the factory by reference
+    session: Annotated[Session, Inject(make_session)]   # depend on the factory by reference
 ```
 
 - The function's **parameters** are its dependencies, under the same rules as a
   constructor; its **return annotation** is documentation and typing only.
 - The function's own token is the function, so `await container.resolve(make_session)`
-  works and `Depends[make_session]` is the idiomatic way to depend on it.
+  works. `Depends[make_session]` is the *runtime* spelling of that token — it
+  evaluates to the function — but a function is not a type: a field annotated with
+  it is skipped by the gates below, and both `mypy` and `pyright` reject it.
+  `Annotated[Session, Inject(make_session)]` resolves the same token and keeps
+  `Session` for checkers (PRD 01 §5.5), which is why the field above is written
+  that way.
 - The return value is the dependency. An `async def` factory is awaited.
 - Functions carry no lifecycle hooks: `post_construct`/`pre_destruct` stay empty.
 

@@ -485,10 +485,13 @@ class CachedRepository:
 
 `Depends[T]` is a **runtime** spelling: it evaluates to `T`, so the container receives the bare
 token and never a marker object. It is not a *type form* — neither checker accepts it in
-annotation position — and §5.5 states the rule a typed codebase follows instead.
+annotation position — and §5.5 states the rule a typed codebase follows instead: annotate the
+resolved type, or, when the token is not a type at all (a function provider), write the same token
+as `Annotated[T, Inject(token)]`, which `Inject` carries and `T` keeps type-checkable.
 
 ```python run
-from lauren_di import Depends, injectable
+from typing import Annotated
+from lauren_di import Depends, Inject, injectable
 
 @injectable()
 def make_session(cfg: Config) -> Session:
@@ -501,7 +504,7 @@ assert Depends[Session] is Session
 
 @injectable()
 class UserRepo:
-    session: Session                              # the token `Depends[Session]` produces
+    session: Annotated[Session, Inject(make_session)]   # the factory's token, type-clean
 
 @injectable()
 class AuditRepo:
@@ -745,9 +748,14 @@ print(sorted(leaf.code for leaf in leaves))
   error on the wrapper, and a function provider is not a valid type argument at all
   (`Function "make_session" is not valid as a type`). A typed codebase annotates the resolved type
   — `session: Session`, the same token the spelling produces — and writes the spelling only where
-  it is *evaluated*, e.g. `assert Depends[Session] is Session`. §5.4's example is written that way;
-  `tests/docs/test_prd_examples.py` fails if a §5.4 block puts the spelling in annotation position,
-  and `tests/unit/test_public_api.py` fails if this bullet stops stating the rule.
+  it is *evaluated*, e.g. `assert Depends[Session] is Session`. When the token is not a type at all,
+  the type-clean spelling of that same token is `Annotated[T, Inject(token)]`: `Inject` carries the
+  key and `T` keeps its static type, so a function provider is written
+  `session: Annotated[Session, Inject(make_session)]` rather than `session: Depends[make_session]`.
+  §5.4's example is written both ways; `tests/docs/test_depends_spelling.py` fails if *any* python
+  block in the corpus puts the spelling in annotation position (the whole of `prds/` and every file
+  the docs contract reads, not just §5.4), and `tests/unit/test_public_api.py` fails if this bullet
+  stops stating the rule.
 - **Stable** names may be added to within a minor release but not renamed or removed before a
   major release, with the exception of `Provider`'s field set (additive only) and the error
   leaves (additive only).

@@ -231,7 +231,7 @@ class Repo:
     def __init__(
         self,
         conn: Annotated[Connection, Inject(DB)],   # resolve DB, type-check as Connection
-        cache: Depends[Cache],                    # Depends[Cache] is Cache (D-25)
+        cache: Cache,                             # `Depends[Cache]` is Cache (D-25)
     ) -> None: ...
 
 conn = use_factory(
@@ -266,15 +266,29 @@ Rules:
    rules (PRD 02 §5.9) apply unchanged: a class, a function token, or an `Annotated` override. No
    `ExtractionMarker` base class is carried, and `Depends` is not itself a token (D-25).
 
-`Depends`'s implementation is three lines:
+`Depends` is a single instance, not a class: `Depends[X]` subscribes the *instance* through
+`__getitem__`, so the identity contract lives in one method. (The private class also defines
+`__class_getitem__`, which nothing reaches: `Depends` is an instance and the class is not
+exported, so `Depends[X]` never takes that branch.) The whole contract is identity plus a
+readable `repr`:
 
 ```python
-class Depends:
+class _DependsAlias:
     """Spelling-only alias: ``Depends[T] is T`` (D-25)."""
 
-    def __class_getitem__(cls, item: Any) -> Any:
+    def __getitem__(self, item: Any) -> Any:      # `Depends[X]` calls this
         return item
+
+    def __repr__(self) -> str:
+        return "Depends"
+
+
+Depends = _DependsAlias()
 ```
+
+Because it is a value and not a type, the spelling is **runtime-only**: `x: Depends[T]` is rejected
+by both checkers, so a typed codebase writes `x: T`, or `Annotated[T, Inject(token)]` when the token
+is not a type (PRD 01 §5.5). Every example in this PRD follows that rule.
 
 ### 5.3 `CustomProvider` and the four recipes
 
@@ -555,7 +569,9 @@ Rules:
    and a message naming `Annotated[T, Inject(token)]` (D-30). The reference drops the field silently
    (probe E-72), leaving an instance without the attribute.
 4. **`Depends[T]` is accepted anywhere `T` is accepted**, including class bodies (probe E-63), because
-   it *is* `T` (D-25).
+   it *is* `T` (D-25) — as a *runtime* expression. When `T` is a type the field is collected; when `T`
+   is a function the annotation is not a type at all, so PRD 02 §5.6's field gates skip it silently
+   and the typed spelling is `Annotated[T, Inject(fn)]` (PRD 01 §5.5).
 5. **`OptionalDep` has exactly one supported position**: an `injects` list. Elsewhere it is either
    ignored by the field gate or an unresolvable token (§5.2 rule 4).
 6. **A string token in an `injects` list needs no wrapper** (`injects=["LOGGER"]`); in an annotation
@@ -570,7 +586,7 @@ import asyncio
 from typing import Annotated
 
 from lauren_di import (
-    Depends, DIContainer, Inject, OptionalDep, Scope, Token,
+    DIContainer, Inject, OptionalDep, Scope, Token,
     injectable, use_class, use_existing, use_factory, use_value,
 )
 
@@ -594,7 +610,7 @@ class Metrics(Plugin): pass
 class Report:
     def __init__(
         self,
-        clock: Depends[Clock],
+        clock: Clock,
         db: Annotated[str, Inject(DB)],
         plugins: list[Plugin],
     ) -> None:
@@ -623,9 +639,9 @@ asyncio.run(main())
 ```
 
 Four things to notice, because they are the contract: the alias chain ends at the same singleton the
-class token resolves; the `Depends` parameter is indistinguishable from `clock: Clock`; the
-`OptionalDep` member lowered to `None` without weakening the `DB` edge; and the collection came back
-in registration order as a real `list`.
+class token resolves; the `clock` parameter is an ordinary `Clock` dependency (`Depends[Clock]` would
+be the same token, D-25); the `OptionalDep` member lowered to `None` without weakening the `DB` edge;
+and the collection came back in registration order as a real `list`.
 
 ## 6. Architecture Fit & Feasibility
 
