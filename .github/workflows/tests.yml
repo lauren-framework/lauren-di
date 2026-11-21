@@ -33,7 +33,11 @@ jobs:
       - name: Install nox
         run: python -m pip install "nox>=2024.4.15"
       - name: Run the suite on this interpreter
-        run: nox -s tests -- -q
+        # `nox -s tests` alone expands to every supported interpreter, so a
+        # matrix job would run all five and report the version it happened to
+        # find first. `--python` narrows the session to the one this job
+        # installed, which is the interpreter the job claims to test.
+        run: nox -s tests --python ${{ matrix.python }} -- -q
 
   unit:
     name: unit
@@ -56,6 +60,20 @@ jobs:
           python-version: "3.14"
       - run: python -m pip install "nox>=2024.4.15"
       - run: nox -s integration
+
+  typing:
+    name: typing
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.14"
+      - run: python -m pip install "nox>=2024.4.15"
+      # `nox -s typing` runs `mypy --strict` and `pyright` (through npx) over
+      # the package and the §5.4 fixtures. A checker that cannot run is a
+      # recorded failure in the session, never a silent pass.
+      - run: nox -s typing
 
   coverage:
     name: coverage
@@ -82,3 +100,38 @@ jobs:
           # is a real failure - do not let it pass as a warning.
           if-no-files-found: error
           retention-days: 14
+
+  parity:
+    name: parity
+    runs-on: ubuntu-latest
+    env:
+      # PRD 08 §5.9 / MC-32: the matrix measures this checkout, never a
+      # `lauren` resolved from an index. Bump the SHA deliberately, in a commit
+      # that records why — `nox -s parity` logs the commit and the sha256 of
+      # `lauren/_di/__init__.py` it actually measured.
+      REFERENCE_REPO: https://github.com/lauren-framework/lauren-framework.git
+      REFERENCE_SHA: 0009d4398d0be12ce02fc416520802e6c1f05531
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.14"
+      - run: python -m pip install "nox>=2024.4.15"
+      # The suite expects the checkout at `<workspace>/../lauren-framework`,
+      # which is outside `GITHUB_WORKSPACE` and therefore cannot be an
+      # `actions/checkout` path; clone it there instead. `PARITY_REFERENCE_TOKEN`
+      # is only needed while the reference repository is private.
+      - name: Clone the pinned reference checkout
+        env:
+          PARITY_REFERENCE_TOKEN: ${{ secrets.PARITY_REFERENCE_TOKEN }}
+        run: |
+          set -eu
+          url="${REFERENCE_REPO}"
+          if [ -n "${PARITY_REFERENCE_TOKEN:-}" ]; then
+            url="https://x-access-token:${PARITY_REFERENCE_TOKEN}@github.com/lauren-framework/lauren-framework.git"
+          fi
+          git clone --quiet --filter=blob:none "${url}" "${GITHUB_WORKSPACE}/../lauren-framework"
+          git -C "${GITHUB_WORKSPACE}/../lauren-framework" checkout --quiet "${REFERENCE_SHA}"
+      # `nox -s parity` errors when the checkout is missing, so a failed clone
+      # cannot leave a green run in which the reference half never executed.
+      - run: nox -s parity

@@ -282,7 +282,7 @@ in PRD 02 §5.4 with the rest of the record.
 | `instance_index` | `instance_index() -> Mapping[Any, Provider]` | 03 |
 | `applied_overrides` | `applied_overrides() -> frozenset[Any]` | 07 |
 | `resolve` | `async resolve(token: Any, *, request_cache: dict[Any, Any] \| None = None, values: Mapping[Any, Any] \| None = None, owning_module: type \| None = None) -> Any` | 02 |
-| `scope` | `scope(*, values: Mapping[Any, Any] \| None = None) -> AsyncContextManager[ResolutionScope]` | 03 |
+| `scope` | `scope(*, values: Mapping[Any, Any] \| None = None) -> ResolutionScope` | 03 |
 | `startup` | `async startup() -> None` | 03 |
 | `shutdown` | `async shutdown() -> tuple[DestructError, ...]` | 03 |
 | `adopt_lifecycle` | `adopt_lifecycle(instance: Any) -> None` | 03 |
@@ -296,6 +296,16 @@ existed so the framework's scheduler could write back into the container, and D-
 Tests assert cache behaviour through resolution identity and hook firing instead of peeking. In the
 other direction, `adopt_lifecycle()` **is** public: it is the embedder's seam for giving an object the
 container did not construct a lifecycle, which no other public call can do.
+
+`scope()` is annotated `-> ResolutionScope`, not `-> AsyncContextManager[ResolutionScope]`, because
+PRD 03 G3 states the same thing in words ("`container.scope()` returns a `ResolutionScope`") and
+because the returned object **is** the context manager: `ResolutionScope.__aenter__` returns `self`
+and `__aexit__` closes it, so `async with container.scope() as scope:` is unchanged and it satisfies
+`AsyncContextManager[ResolutionScope]` structurally. Naming the protocol instead would be a true but
+weaker statement — `scope: ResolutionScope = container.scope(...)` would become a type error, and
+`.values`, `.errors` and `await scope.close()`, which §5.3.1's `ResolutionScope` row documents, would
+be hidden from the caller. `tests/unit/test_resolve_contract.py` asserts the annotation and this row
+in the same words, and `tests/typing/reveal_scope_factory.py` proves both spellings type-check.
 
 #### 5.3.4 Custom-provider recipes
 

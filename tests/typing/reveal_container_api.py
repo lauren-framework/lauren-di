@@ -111,10 +111,11 @@ async def resolve_accepts_keyword_only_parameters(container: DIContainer) -> Non
 
 
 async def scope_is_an_async_context_manager(container: DIContainer) -> None:
-    """§5.3.3: ``scope(*, values: Mapping[Any, Any] | None = None)``.
+    """§5.3.3: ``scope(*, values: Mapping[Any, Any] | None = None) -> ResolutionScope``.
 
-    Written with ``async with`` so the fixture holds whether the factory is
-    eventually annotated ``ResolutionScope`` or ``AsyncContextManager[ResolutionScope]``.
+    ``ResolutionScope`` is itself the async context manager (``__aenter__``
+    returns ``self``), so ``async with`` is the spelling both PRD 03 §5.3 and
+    PRD 01 §5.3.3 show.
     """
     values: Mapping[Any, Any] = MappingProxyType({DB: "from-proxy"})
     async with container.scope(values=values) as scope:

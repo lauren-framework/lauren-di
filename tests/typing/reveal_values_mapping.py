@@ -62,11 +62,10 @@ async def request_cache_accepts_opaque_keys(container: DIContainer) -> None:
 
 
 async def scope_factory_accepts_a_non_dict_mapping(container: DIContainer) -> None:
-    """§5.3.3: ``scope(*, values: Mapping[Any, Any] | None = None)``.
+    """§5.3.3: ``scope(*, values: Mapping[Any, Any] | None = None) -> ResolutionScope``.
 
-    ``async with`` is used rather than assigning the result, so this holds
-    whether ``scope()`` is eventually annotated ``ResolutionScope`` or
-    ``AsyncContextManager[ResolutionScope]``.
+    ``async with`` is the spelling both PRDs show, and it holds now that the
+    factory is annotated with the class rather than the protocol.
     """
     async with container.scope(values=read_only_mapping()) as scope:
         resolved = await scope.resolve(CFG)

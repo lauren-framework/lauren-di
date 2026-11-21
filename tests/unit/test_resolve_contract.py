@@ -9,6 +9,12 @@ chooses, not only ``type`` objects.
 These tests pin the signature to §5.3.3 literally and prove the runtime already
 behaves the way the widened annotations claim, so the annotations cannot quietly
 narrow back to ``dict[type, Any]``.
+
+The same treatment is applied to ``scope()``: §5.3.3 used to name the
+``AsyncContextManager[ResolutionScope]`` protocol while the method said ``Any``,
+which is neither. It now says ``ResolutionScope`` -- the class, which *is* its
+own context manager -- and the row, the source spelling and both call shapes are
+asserted here.
 """
 
 from __future__ import annotations
@@ -34,6 +40,48 @@ CFG = Token("cfg")
 
 def _signature(func: Any) -> dict[str, inspect.Parameter]:
     return dict(inspect.signature(func).parameters)
+
+
+#: PRD 01 is the normative surface; the §5.3.3 rows are read from it, never copied.
+PRD_01 = (
+    pathlib.Path(__file__).resolve().parents[2] / "prds" / "01-product-definition-and-public-api.md"
+)
+
+#: Placeholder for the markdown-escaped ``\|`` inside a table cell.
+_PIPE = "\x00"
+
+
+def _prd_5_3_3_row(member: str) -> str:
+    """The signature cell of ``member``'s row in PRD 01 §5.3.3's table.
+
+    Read rather than hardcoded: the point of the test is that the document and
+    the source agree, so a copied expectation would let both drift together.
+    """
+    text = PRD_01.read_text(encoding="utf-8")
+    start = text.index("#### 5.3.3")
+    end = text.index("#### 5.3.4", start)
+    for line in text[start:end].splitlines():
+        if not line.startswith("|"):
+            continue
+        cells = [
+            cell.strip().replace(_PIPE, "|")
+            for cell in line.replace("\\|", _PIPE).strip().strip("|").split("|")
+        ]
+        if len(cells) == 3 and cells[0] == f"`{member}`":
+            return cells[1].strip("`")
+    raise AssertionError(f"PRD 01 §5.3.3 has no row for {member!r}")
+
+
+def _source_return_annotation(name: str) -> str:
+    """``name``'s return annotation exactly as ``_container.py`` spells it."""
+    module_path = inspect.getsourcefile(DIContainer)
+    assert module_path is not None, "DIContainer has no source file"
+    tree = ast.parse(pathlib.Path(module_path).read_text(encoding="utf-8"))
+    for node in ast.walk(tree):
+        if isinstance(node, ast.FunctionDef) and node.name == name:
+            assert node.returns is not None, f"{name} has no return annotation"
+            return ast.unparse(node.returns)
+    raise AssertionError(f"{name} not found in {module_path}")
 
 
 # ---------------------------------------------------------------------------
@@ -127,18 +175,70 @@ def test_scope_resolve_takes_only_a_token() -> None:
     assert params["owning_module"].kind is inspect.Parameter.KEYWORD_ONLY
 
 
-def test_scope_factory_accepts_a_mapping() -> None:
-    """§5.3.3: ``scope(*, values: Mapping[Any, Any] | None = None)``.
+def test_scope_signature_matches_prd_5_3_3() -> None:
+    """§5.3.3: ``scope(*, values: Mapping[Any, Any] | None = None) -> ResolutionScope``.
 
-    The *return* annotation is deliberately not asserted here: §5.3.3 spells it
-    ``AsyncContextManager[ResolutionScope]`` while the shipped method says
-    ``Any``, and choosing between that and the more precise ``ResolutionScope``
-    changes what callers may do with the result. That divergence is tracked
-    separately rather than being frozen by this test.
+    The return type is the class, not the ``AsyncContextManager[ResolutionScope]``
+    protocol the PRD used to name: ``ResolutionScope`` is its own context manager,
+    so the protocol spelling stays valid while a caller may also hold the object.
     """
-    hints = get_type_hints(DIContainer.scope)
+    params = _signature(DIContainer.scope)
 
+    assert list(params) == ["self", "values"]
+    assert params["values"].kind is inspect.Parameter.KEYWORD_ONLY
+    assert params["values"].default is None
+
+    hints = get_type_hints(DIContainer.scope)
     assert hints["values"] == Mapping[Any, Any] | None
+    assert hints["return"] is ResolutionScope
+
+
+def test_scope_annotation_matches_the_prd_row_in_the_same_words() -> None:
+    """The row and the source spell the return type identically.
+
+    §5.3.3's table is the normative statement, so the *spelling* is compared
+    rather than only the evaluated hint: ``-> Any`` used to satisfy
+    ``get_type_hints`` while telling a caller nothing.
+    """
+    row = _prd_5_3_3_row("scope")
+
+    assert row == "scope(*, values: Mapping[Any, Any] | None = None) -> ResolutionScope"
+    assert _source_return_annotation("scope") == "ResolutionScope"
+
+
+def test_resolution_scope_implements_the_protocol_the_prd_named() -> None:
+    """``ResolutionScope`` structurally satisfies ``AsyncContextManager[ResolutionScope]``.
+
+    This is what makes the narrower annotation safe: ``async with`` needs
+    ``__aenter__`` returning the scope and ``__aexit__`` returning ``bool | None``.
+    """
+    assert get_type_hints(ResolutionScope.__aenter__)["return"] is ResolutionScope
+    assert get_type_hints(ResolutionScope.__aexit__)["return"] is bool
+
+
+def test_scope_result_supports_both_documented_spellings() -> None:
+    """Assign the object *and* enter it: §5.3.1's members stay reachable."""
+
+    async def scenario() -> tuple[Any, Any, tuple[Any, ...]]:
+        container = DIContainer()
+
+        held = container.scope(values={CFG: "held"})
+        assert held.values[CFG] == "held"
+        assert held.closed is False
+        errors = await held.close()
+
+        async with container.scope(values={CFG: "entered"}) as entered:
+            assert entered.values[CFG] == "entered"
+
+        return held, entered, errors
+
+    held, entered, errors = run(scenario())
+
+    assert isinstance(held, ResolutionScope)
+    assert isinstance(entered, ResolutionScope)
+    assert held.closed is True
+    assert entered.closed is True
+    assert errors == ()
 
 
 # ---------------------------------------------------------------------------

@@ -159,8 +159,9 @@ def test_test_and_coverage_configuration_is_present() -> None:
 
     coverage = config["tool"]["coverage"]
     assert coverage["run"]["branch"] is True
-    assert coverage["report"]["fail_under"] >= 71, (
-        "the coverage ratchet must not be lowered; raise it as tests are added"
+    assert coverage["report"]["fail_under"] >= 77, (
+        "the coverage ratchet must not be lowered; raise it as tests are added "
+        "(it was measured at 77.15 % branch coverage when it moved from 71 to 77)"
     )
 
 

@@ -28,7 +28,9 @@ Design principles
 
 from __future__ import annotations
 
+import hashlib
 import shutil
+import subprocess
 import tempfile
 from pathlib import Path
 
@@ -58,6 +60,17 @@ SUPPORTED_PYTHONS = ["3.10", "3.11", "3.12", "3.13", "3.14"]
 #: Every ``python-version`` pin outside the matrix in ``.github/workflows/``
 #: must equal this, which the contract test also enforces.
 PRIMARY_PYTHON = "3.14"
+
+#: The reference checkout the parity matrix measures (PRD 08 §5.9, MC-32).
+#: ``tests/parity/conftest.py`` resolves the same path and refuses a ``lauren``
+#: imported from anywhere else, so a parity run here and in CI compares the
+#: library against the same code.
+REFERENCE_DIR = ROOT.parent / "lauren-framework"
+
+#: ``lauren``'s single runtime dependency. Without it ``import lauren`` raises
+#: ImportError, which the suite reports as SKIP — a parity run where the
+#: reference half never executed measures nothing (MC-29).
+REFERENCE_DEPENDENCIES = ("anyio>=4.0",)
 
 #: Pinned tool versions. Unpinned linters redden a green branch without a code
 #: change, so the version CI uses is the version this file installs.
@@ -229,6 +242,71 @@ def typing(session: nox.Session) -> None:
         str(TESTS_DIR / "typing"),
     )
     _run_pyright(session)
+
+
+# ---------------------------------------------------------------------------
+# Parity
+# ---------------------------------------------------------------------------
+def _git(*args: str) -> str | None:
+    """Run ``git`` in the reference checkout; ``None`` when git cannot answer."""
+    try:
+        return subprocess.run(
+            ["git", "-C", str(REFERENCE_DIR), *args],
+            capture_output=True,
+            text=True,
+            check=True,
+        ).stdout.strip()
+    except (OSError, subprocess.CalledProcessError):
+        return None
+
+
+def _reference_build() -> str:
+    """What the matrix is about to measure: the checkout's commit and its DI digest.
+
+    MC-32 pins the *checkout*, not the package name, so the commit and the
+    sha256 of ``lauren/_di/__init__.py`` are logged with every run: two parity
+    runs that disagree can then be told apart by what they measured. The
+    checkout is a working tree, so uncommitted edits are counted too — a dirty
+    tree is a different build from the commit it claims.
+    """
+    di_init = REFERENCE_DIR / "lauren" / "_di" / "__init__.py"
+    digest = hashlib.sha256(di_init.read_bytes()).hexdigest()
+    head = _git("rev-parse", "HEAD") or "<no git metadata>"
+    status = _git("status", "--porcelain", "--untracked-files=no")
+    dirty = len([line for line in (status or "").splitlines() if line.strip()])
+    suffix = f" + {dirty} uncommitted path(s)" if dirty else ""
+    return f"HEAD {head}{suffix}, lauren/_di/__init__.py sha256 {digest}"
+
+
+@nox.session(python=PRIMARY_PYTHON, reuse_venv=True)
+def parity(session: nox.Session) -> None:
+    """Run PRD 08 §5.9's matrix against the pinned ``lauren`` checkout.
+
+    ``tests/parity/`` also runs inside ``nox -s tests``, where an absent
+    checkout reports SKIP (the reference half of every invariant is skipped,
+    never passed). Here it is a gate, so an absent checkout is an **error**: a
+    green parity run in which the reference half never executed is exactly the
+    outcome MC-29 forbids. Pass ``--allow-missing-reference`` to accept the
+    skip deliberately — useful for a contributor without a sibling clone, never
+    for CI.
+    """
+    allow_missing = "--allow-missing-reference" in session.posargs
+    posargs = [arg for arg in session.posargs if arg != "--allow-missing-reference"]
+    if REFERENCE_DIR.is_dir():
+        session.log(f"parity reference: {REFERENCE_DIR} ({_reference_build()})")
+    elif allow_missing:
+        session.log(
+            f"parity reference: {REFERENCE_DIR} is absent, so the reference half "
+            "will report SKIP (--allow-missing-reference)"
+        )
+    else:
+        session.error(
+            f"the reference checkout is missing at {REFERENCE_DIR}. Clone "
+            "https://github.com/lauren-framework/lauren-framework.git there, or pass "
+            "--allow-missing-reference to run the library half only."
+        )
+    session.install(*REFERENCE_DEPENDENCIES)
+    _pytest(session, str(TESTS_DIR / "parity"), "-q", *posargs)
 
 
 # ---------------------------------------------------------------------------
@@ -412,15 +490,24 @@ def clean(session: nox.Session) -> None:
 def ci(session: nox.Session) -> None:
     """Run everything CI runs, in the same order.
 
-    Equivalent to the union of ``.github/workflows/{tests,lint,docs}.yml``.
+    Equivalent to the union of ``.github/workflows/{tests,lint,docs}.yml``,
+    which is the contract ``tests/unit/test_noxfile_contract.py`` enforces in
+    both directions: every session listed here has a workflow job, and every
+    session a workflow runs is listed here. ``release.yml`` is the one
+    exception — it adds ``release_test``, which needs publishing credentials and
+    is not a pull-request gate.
     """
     nox_bin = shutil.which("nox") or "nox"
     plan: list[tuple[str, list[str]]] = [
         ("lint", []),
         ("format", []),
         ("typecheck", []),
+        ("typing", []),
         ("tests", []),
+        ("unit", []),
+        ("integration", []),
         ("coverage", []),
+        ("parity", []),
         ("llms_check", []),
         ("docs_contract", []),
         ("docs", []),

@@ -315,6 +315,12 @@ asyncio.run(main())
 | `close` | `async close() -> tuple[DestructError, ...]` | Idempotent. Tears down the cache newest-first and returns the errors. A second call returns the same tuple and does nothing |
 | `__aenter__` / `__aexit__` | async context manager | `__aenter__` activates; `__aexit__` calls `close()` and **propagates the body's exception unchanged** |
 
+`container.scope()` is annotated `-> ResolutionScope` (PRD 01 §5.3.3): the scope object is itself
+the async context manager — `__aenter__` returns `self`, `__aexit__` calls `close()` — so
+`async with container.scope() as scope:` is unchanged and the result still satisfies
+`AsyncContextManager[ResolutionScope]`, while a caller that assigns it keeps `values`,
+`teardown_errors` and `close()` typed.
+
 Rules, each testable from the public surface:
 
 1. **Single use.** `PENDING -> ACTIVE -> CLOSED`, one transition each way. Entering twice, or

@@ -1366,10 +1366,21 @@ class DIContainer:
         self._singletons_initialized.clear()
         return tuple(errors)
 
-    def scope(self, *, values: Mapping[Any, Any] | None = None) -> Any:
-        """Open an explicit resolution scope owning its own request cache."""
-        from ._scope import ResolutionScope
+    def scope(self, *, values: Mapping[Any, Any] | None = None) -> ResolutionScope:
+        """Open an explicit resolution scope owning its own request cache.
 
+        The returned :class:`ResolutionScope` is itself an async context manager
+        of itself -- ``__aenter__`` returns it and ``__aexit__`` closes it -- so
+        both spellings in PRD 01 §5.3.3 work::
+
+            async with container.scope() as scope:  ...
+            scope = container.scope()
+
+        The class, not the ``AsyncContextManager[ResolutionScope]`` protocol, is
+        the declared return type because the protocol would hide ``.values``,
+        ``.errors`` and ``await scope.close()`` from the caller while telling
+        them less than the truth about what comes back.
+        """
         return ResolutionScope(self, values=values)
 
     # -- Compilation -------------------------------------------------------
@@ -2997,6 +3008,12 @@ def _filter_kwargs_for_signature(
     }
     return {k: v for k, v in kwargs.items() if k in accepted}
 
+
+# ``_scope`` imports ``_describe`` from this module, so importing it at the top
+# would be a cycle. Deferring it to the end of the module body is what keeps
+# ``DIContainer.scope``'s ``-> ResolutionScope`` annotation resolvable at runtime
+# (``typing.get_type_hints``) and not only under type checking.
+from ._scope import ResolutionScope  # noqa: E402  (deferred: see above)
 
 __all__ = [
     "INJECTABLE_META",

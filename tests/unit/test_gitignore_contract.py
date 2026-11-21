@@ -29,11 +29,9 @@ other test in this file pass vacuously.
 from __future__ import annotations
 
 import fnmatch
-import importlib.util
 import pathlib
 import shutil
 import subprocess
-import sys
 from typing import Any
 
 import pytest
@@ -126,20 +124,6 @@ def patterns() -> list[str]:
         for line in text.splitlines()
         if line.strip() and not line.lstrip().startswith("#")
     ]
-
-
-@pytest.fixture(scope="module")
-def noxfile() -> Any:
-    """The repository's real ``noxfile.py``, imported as a module."""
-    spec = importlib.util.spec_from_file_location(
-        "_lauren_di_noxfile_gitignore", ROOT / "noxfile.py"
-    )
-    assert spec is not None, "cannot build an import spec for noxfile.py"
-    assert spec.loader is not None, "no loader for noxfile.py"
-    module = importlib.util.module_from_spec(spec)
-    sys.modules[spec.name] = module
-    spec.loader.exec_module(module)
-    return module
 
 
 def is_ignored(path: str, patterns: list[str]) -> bool:

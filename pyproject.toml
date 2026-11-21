@@ -112,11 +112,11 @@ omit = ["lauren_di/_typing/*"]
 [tool.coverage.report]
 show_missing = true
 skip_covered = true
-# Ratchet. The measured figure today is ~72.7 % branch coverage, so the gate is
-# set just below it: any change that drops coverage by more than a point fails
-# `nox -s coverage` and CI. Raise this number — never lower it — as tests are
-# added; the target is 85 %.
-fail_under = 71
+# Ratchet. The measured figure is 77.15 % branch coverage (1347 statements,
+# 526 branches, 273 missed, 83 partial), so the gate sits just below it: a drop
+# of even a fraction of a point fails `nox -s coverage` and CI. Raise this
+# number — never lower it — as tests are added; the target is 85 %.
+fail_under = 77
 exclude_lines = [
     "pragma: no cover",
     "if TYPE_CHECKING:",

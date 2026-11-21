@@ -32,7 +32,14 @@ import re
 from urllib.parse import urlsplit
 
 import pytest
-import tomllib
+
+#: ``tomllib`` is stdlib from 3.11, and 3.10 is still a supported interpreter.
+#: This module reads ``pyproject.toml`` at import time, so without the guard the
+#: whole suite fails to collect on 3.10 (`ModuleNotFoundError`) before a single
+#: test runs — the CI matrix caught exactly that. The contract still runs on
+#: 3.11–3.14; 3.10 reports SKIP naming the reason, which is the same trade
+#: ``test_release_readiness.py`` makes for its metadata assertions.
+tomllib = pytest.importorskip("tomllib", reason="tomllib is stdlib on Python 3.11+")
 
 pytestmark = pytest.mark.unit
 
