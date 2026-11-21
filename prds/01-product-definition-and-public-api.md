@@ -352,6 +352,16 @@ block may use the imports and declarations of an earlier one, so §5.4 reads as 
 block that cannot execute as written must carry `fragment` (or `skip`) instead, and is then only
 compiled — the same marker grammar as `scripts/check_docs_contract.py`.
 
+The coverage rule is one `####` subsection per symbol, or per tight pair where the two names describe
+one mechanism (`OverridePlan`/`ProviderOverride`, `Owner`/`Grant`,
+`building_with`/`active_override_plan`), with one deliberate exception: the thirteen `DIError` leaves
+differ only by `code`, so they share the single grouped block at the end of this section, and that
+block is their canonical example. The rule is not maintained by hand —
+`test_every_exported_name_has_an_example` derives it from `lauren_di.__all__`, so an export that gets
+neither a heading nor a place in the group fails, and
+`test_the_acceptance_row_states_the_rule_the_section_follows` fails if §10.1's row describes a
+different shape than the one this section has.
+
 #### `injectable` — class and function forms
 
 ```python run
@@ -926,6 +936,6 @@ pairs), cycle detection over generated graphs, and `list[T]` membership order.
 | Distribution `lauren-di`, import `lauren_di` | §5.1 |
 | Stdlib-only, Python `>=3.10`, PEP 561 | §5.1, G4–G6, §6.2, §10 packaging/import rows |
 | Complete exported-symbol table with signatures | §5.3.1–§5.3.6 |
-| One usage example per named symbol | §5.4 (one subsection per symbol) |
+| One usage example per named symbol | §5.4 — one `####` subsection per symbol or tight pair, plus one grouped block shared by the thirteen `DIError` leaves |
 | 20-line quickstart using `@injectable` + `await …resolve(...)` | §5.2 |
 | Non-goals cover HTTP request objects, routing, extractors, scheduling, module-graph compiler | §3 (first five bullets) |

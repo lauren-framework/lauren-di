@@ -21,7 +21,9 @@ from __future__ import annotations
 
 import ast
 import asyncio
+import re
 
+import lauren_di
 import prd_examples
 import pytest
 
@@ -100,6 +102,28 @@ def test_inventory_is_reported(capsys: pytest.CaptureFixture[str]) -> None:
     )
 
 
+def _error_leaves() -> set[str]:
+    """The ``DIError`` subclasses in ``__all__`` — the one family allowed to share a block."""
+    return {
+        name
+        for name in lauren_di.__all__
+        if name != "DIError"
+        and isinstance(getattr(lauren_di, name), type)
+        and issubclass(getattr(lauren_di, name), lauren_di.DIError)
+    }
+
+
+def _covered_by_heading(name: str) -> bool:
+    """Whether some ``####`` heading names ``name``.
+
+    Headings wrap names in backticks, so only word characters are excluded at the
+    edges — that still keeps ``Provider`` from matching inside ``ProviderOverride``
+    and ``Scope`` from matching inside ``ResolutionScope``.
+    """
+    headings = "\n".join(SUBSECTIONS)
+    return re.search(rf"(?<!\w){re.escape(name)}(?!\w)", headings) is not None
+
+
 def _referenced_names(source: str) -> set[str]:
     """Identifiers a block actually uses, excluding what it merely imports.
 
@@ -129,31 +153,13 @@ def test_every_exported_name_has_an_example() -> None:
       and the whole family then has to appear in one shared block, so a leaf
       added to ``__all__`` without being added to the group still fails.
     """
-    import re
-
-    import lauren_di
-
-    headings = "\n".join(SUBSECTIONS)
-
-    def covered_by_heading(name: str) -> bool:
-        # Headings wrap names in backticks, so only word characters are excluded
-        # at the edges -- that still keeps ``Provider`` from matching inside
-        # ``ProviderOverride`` and ``Scope`` from matching inside ``ResolutionScope``.
-        return re.search(rf"(?<!\w){re.escape(name)}(?!\w)", headings) is not None
-
-    error_leaves = {
-        name
-        for name in lauren_di.__all__
-        if name != "DIError"
-        and isinstance(getattr(lauren_di, name), type)
-        and issubclass(getattr(lauren_di, name), lauren_di.DIError)
-    }
+    error_leaves = _error_leaves()
 
     # Every non-error name must own a heading.
     headless = [
         name
         for name in lauren_di.__all__
-        if name not in error_leaves and not covered_by_heading(name)
+        if name not in error_leaves and not _covered_by_heading(name)
     ]
     assert not headless, f"exported names with no §5.4 subsection of their own: {headless}"
 
@@ -176,6 +182,51 @@ def test_every_exported_name_has_an_example() -> None:
         "the error leaves are not covered by one shared grouped example; "
         f"per-leaf blocks: { {k: sorted(v) for k, v in appearances.items()} }"
     )
+
+
+#: §10.1's traceability row for the example rule. It is prose, so nothing executes
+#: it unless this test does.
+_ROW = re.compile(r"^\|\s*One usage example per named symbol\s*\|(.+?)\|\s*$", re.MULTILINE)
+
+
+def test_the_acceptance_row_states_the_rule_the_section_follows() -> None:
+    """§10.1's row must not claim a shape §5.4 does not have.
+
+    The row is the acceptance criterion a reader follows, and unlike the section
+    itself nothing executes it: it said "one subsection per symbol" while §5.4 had
+    22 subsections for 38 exports — the one claim in the document no test could
+    falsify. So the claim is checked against the section's measured shape instead
+    of trusted, and both directions are falsifiable:
+
+    * a strict one-to-one claim is only allowed if the section really has one
+      subsection per export;
+    * otherwise the row must name the grouped exemption, and that exemption must
+      be one the section still needs — if every export owned a heading, claiming
+      a grouping would be the new false statement.
+
+    Both branches read ``lauren_di.__all__`` and the parsed subsections, so neither
+    can drift into agreement with a hardcoded copy of the shape.
+    """
+    text = prd_examples.PRD_PATH.read_text(encoding="utf-8")
+    rows = _ROW.findall(text)
+    assert len(rows) == 1, f"§10.1 should state the example rule once; found {len(rows)}"
+    where = rows[0].strip()
+
+    if "one subsection per symbol" in where.lower():
+        assert len(SUBSECTIONS) == len(lauren_di.__all__), (
+            f"§10.1 claims one subsection per symbol, but §5.4 has {len(SUBSECTIONS)} "
+            f"subsections for {len(lauren_di.__all__)} exports"
+        )
+    else:
+        assert "group" in where.lower(), (
+            "§10.1 neither claims one subsection per symbol nor names the grouped "
+            f"exemption §5.4 uses: {where}"
+        )
+        headless = [name for name in lauren_di.__all__ if not _covered_by_heading(name)]
+        assert headless, (
+            "§10.1 names a grouped exemption, but every export already owns a §5.4 "
+            "heading — the claim and the section disagree in the other direction"
+        )
 
 
 def test_run_marked_blocks_execute_in_file_order() -> None:
