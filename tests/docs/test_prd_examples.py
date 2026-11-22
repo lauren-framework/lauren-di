@@ -306,3 +306,62 @@ def test_compile_failure_carries_the_block_location() -> None:
         prd_examples.compile_example(example)
 
     assert str(excinfo.value.filename).startswith("synthetic.md:")
+
+
+#: §2's G8 row — "Give every public name one canonical example".
+_G8_ROW = re.compile(r"^\|\s*G8\s*\|[^|]*\|(.+?)\|\s*$", re.MULTILINE)
+#: §10's `Examples` row, whose Location cell names the module that implements it.
+_EXAMPLES_ROW = re.compile(r"^\|\s*Examples\s*\|([^|]*)\|", re.MULTILINE)
+
+
+def test_the_goal_row_points_at_the_test_that_implements_it() -> None:
+    """G8 named a document that cannot exist; it must name §10 row 3's test.
+
+    The row read "a tested example in PRD 10's docs contract". The corpus is
+    01–08 and the owner forbids a 09, so PRD 10 is not a document a reader can
+    open — and because the citation carried no `§`, no check ever resolved it
+    either (goal #41). Both halves are pinned here: the row names the location
+    §10 gives, and every `PRD NN` it cites is a file on disk.
+    """
+    text = prd_examples.PRD_PATH.read_text(encoding="utf-8")
+    rows = _G8_ROW.findall(text)
+    assert len(rows) == 1, f"§2 should state G8 once; found {len(rows)}"
+    cell = rows[0].strip()
+
+    where = _EXAMPLES_ROW.findall(text)
+    assert len(where) == 1, f"§10 should have one Examples row; found {len(where)}"
+    implementing = where[0].strip().strip("`")
+
+    assert "§10 row 3" in cell, f"G8 does not name the location §10 gives: {cell}"
+    assert implementing in cell, (
+        f"G8 does not name the module §10 row 3 names ({implementing}): {cell}"
+    )
+
+    cited = {f"{int(number):02d}" for number in re.findall(r"PRD\s+(\d+)", cell)}
+    on_disk = {path.name[:2] for path in prd_examples.PRD_PATH.parent.glob("[0-9][0-9]-*.md")}
+    assert cited <= on_disk, (
+        f"G8 cites PRD(s) {sorted(cited - on_disk)}, which are not files in prds/: {cell}"
+    )
+
+
+def test_the_goal_row_uses_the_acceptance_row_s_words() -> None:
+    """One rule, two places: G8 and §10.1 must not describe the shape differently.
+
+    §10.1 owns the statement of the rule, G8 owns the promise it backs. They are
+    prose, so nothing but this test compares them — and a row that paraphrases
+    the other is how the two drifted into "one subsection per symbol" while §5.4
+    had 22 subsections for 38 exports (goal #25).
+    """
+    text = prd_examples.PRD_PATH.read_text(encoding="utf-8")
+    goal = _G8_ROW.findall(text)
+    acceptance = _ROW.findall(text)
+    assert len(goal) == 1 and len(acceptance) == 1
+
+    # §10.1 states the location, an em dash, then the rule itself.
+    rule = acceptance[0].split("—")[-1].strip()
+    assert rule, f"§10.1 states no rule to compare against: {acceptance[0]!r}"
+    assert rule in goal[0], (
+        "G8 and §10.1 describe the example rule in different words:\n"
+        f"  §10.1: {rule}\n"
+        f"  G8:    {goal[0].strip()}"
+    )

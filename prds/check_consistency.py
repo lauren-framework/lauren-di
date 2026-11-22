@@ -25,7 +25,12 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent
 README = ROOT / "README.md"
-PRDS = sorted(ROOT.glob("0*.md"))
+#: Two digits, not ``0*``: the citation rule resolves ``PRD NN`` for any ``NN``,
+#: so the registry has to be able to *hold* a two-digit document. Under the old
+#: ``0*.md`` glob a ``10-*.md`` was invisible to every check in this file while
+#: still being listable in README §2 — the same silent-skip shape goal #41 closed
+#: in the cross-reference pattern, one layer down.
+PRDS = sorted(ROOT.glob("[0-9][0-9]-*.md"))
 BASELINE = ROOT / "evidence" / "01-conformance-baseline.md"
 GOALS = ROOT.parent / "GOALS.md"
 
@@ -109,17 +114,49 @@ def check_links() -> None:
     notes.append("links: every relative markdown link resolves")
 
 
+#: Every ``PRD NN`` citation, section or not. Not capped at one digit: see
+#: :func:`check_cross_refs` for the reference this widening was written for.
+_PRD_MENTION = re.compile(r"\bPRDs?\s+(\d+)")
+#: A citation that also names a section: ``PRD 02 §5.1``, ``PRD 08 section 5.9``.
+_PRD_SECTION = re.compile(r"\bPRDs?\s+(\d+)\s*(?:§|section\s*)(\d+(?:\.\d+)*)")
+
+
 def check_cross_refs() -> None:
-    files = {f"0{p.name[1:2]}": p for p in PRDS}
-    hs = {k: headings(v) for k, v in files.items()}
-    checked = 0
+    # Every ``PRD NN`` citation, with or without a section. The number is
+    # deliberately not capped at one digit: the check used to read only
+    # ``PRD 0N §x``, so a reference to a document that does not exist matched
+    # nothing and was skipped in silence — ``PRD 10 §3``, or the section-less
+    # ``PRD 10's docs contract`` that PRD 01's G8 row carried for months. That is
+    # the same "well-formed but unchecked" failure the ``owners`` check was
+    # written for, one document over.
+    docs = {p.name[:2]: p for p in PRDS}
+    sections_of = {key: headings(path) for key, path in docs.items()}
+    mentioned = 0
+    located = 0
+    unseen: set[tuple[str, str]] = set()
     for p in PRDS:
-        for m in re.finditer(r"PRD\s+0?(\d)\s*(?:§|section\s*)(\d+(?:\.\d+)*)", p.read_text()):
-            key, sec = "0" + m.group(1), m.group(2)
-            checked += 1
-            if key in hs and sec not in hs[key]:
+        text = p.read_text()
+        for m in _PRD_MENTION.finditer(text):
+            mentioned += 1
+            key = f"{int(m.group(1)):02d}"
+            if key not in docs and (p.name, key) not in unseen:
+                unseen.add((p.name, key))
+                fail(
+                    "cross-ref",
+                    f"{p.name}: {m.group(0)!r} names no PRD on disk "
+                    f"(present: {', '.join(sorted(docs))})",
+                )
+        for m in _PRD_SECTION.finditer(text):
+            located += 1
+            key, sec = f"{int(m.group(1)):02d}", m.group(2)
+            # The mention pass owns document existence, this one owns the
+            # section, so one defect is reported once rather than twice.
+            if key in sections_of and sec not in sections_of[key]:
                 fail("cross-ref", f"{p.name}: PRD {key} §{sec} does not exist")
-    notes.append(f"cross-refs: {checked} 'PRD 0N §x' references checked")
+    notes.append(
+        f"cross-refs: {located} 'PRD NN §x' reference(s) and {mentioned} "
+        f"'PRD NN' mention(s) checked, each against the document it names"
+    )
 
 
 # ------------------------------------------------ 4. decision register integrity

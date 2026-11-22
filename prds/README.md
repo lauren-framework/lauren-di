@@ -185,7 +185,9 @@ The final consistency pass (goal #10) checks, and this file records:
 2. **Template completeness** — every PRD contains all ten numbered template
    headings from §1.
 3. **Reference integrity** — every relative link and every `D-n` citation
-   resolves; every decision marked `Accepted` is decided in exactly one PRD.
+   resolves; every `PRD NN` citation names a document that exists, and every
+   `PRD NN §x` names a heading of that document; every decision marked
+   `Accepted` is decided in exactly one PRD.
 4. **Symbol consistency** — the same public name, default and scope assignment
    is used across all PRDs (a generated symbol/name diff, not eyeballing).
 5. **Scope discipline** — no PRD reintroduces an HTTP, routing, extractor,

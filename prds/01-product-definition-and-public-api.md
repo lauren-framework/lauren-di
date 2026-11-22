@@ -69,7 +69,7 @@ every later PRD cite it.
 | G5 | Promise interpreters the code actually supports | `requires-python = ">=3.10"`; CI runs 3.10–3.14; no 3.11-only stdlib API is used |
 | G6 | Be typed for downstream users | `py.typed` in the wheel; `mypy --strict` and `pyright` pass on the examples in §5.4 |
 | G7 | Make the boundary enforceable | The non-goals in §3 name every adjacent framework subsystem, and PRD 08 turns each into an explicit replacement or a recorded "not supported" |
-| G8 | Give every public name one canonical example | Every symbol in §5.3 has an entry in §5.4 and a tested example in PRD 10's docs contract |
+| G8 | Give every public name one canonical example | Every symbol in §5.3 has an entry in §5.4 — one `####` subsection per symbol or tight pair, plus one grouped block shared by the thirteen `DIError` leaves — and every §5.4 block is compiled, with the `run` ones executed, by the PRD 01 §10 row 3 test (`tests/docs/test_prd_examples.py`) |
 
 ## 3. Non-Goals
 

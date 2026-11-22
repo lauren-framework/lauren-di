@@ -65,7 +65,7 @@ The PRD 01 conformance programme. Evidence, in order:
 | #20–#21 | Parity suite (PRD 08 matrix); every gate wired into `nox -s ci` and CI | `tests/parity/`, `tests/unit/test_noxfile_contract.py` |
 | #22 | Final conformance pass, all five interpreters, ratchet raised | `prds/evidence/22-final-conformance.md` |
 
-## 3. Carried — goals #23–#39
+## 3. Carried — goals #23–#41
 
 | # | Status | Item |
 |---|---|---|
@@ -86,6 +86,8 @@ The PRD 01 conformance programme. Evidence, in order:
 | 37 | **verified** | The `prds` ruff target is scoped to `prds/check_consistency.py` with `extend-exclude = [..., "prds/evidence"]`, proven behaviourally (`--show-files`, load-bearing, and the recorded `E-nnn` probe list); evidence in `prds/evidence/37-lint-scope.md` |
 | 38 | **verified** | `GOALS.md`'s two numbering namespaces are split and checked: §4's twelve items are `P1–P12` (they hold no runner position yet), §3 gained verified rows for #36 and #37, and `prds/check_consistency.py` fails on a `#NN` outside §2/§3's registry, a `PN` heading outside §4, a number used twice, or a reference to an id the file does not define; evidence in `prds/evidence/38-goals-numbering.md` |
 | 39 | **verified** | PRD 03 §5.3 names the `ResolutionScope` the package ships: `active` → `closed` and `teardown_errors` → `errors` throughout the PRD (the PRD was amended to the shipped names, not the class to the PRD's), its example is now a `run` block that asserts `closed`/`errors` and the teardown itself, and `tests/docs/test_prd_03_examples.py` executes §5.3, compares its surface table to `dir(ResolutionScope)`, and rejects prose naming a member the class lacks; evidence in `prds/evidence/39-scope-member-names.md` |
+| 40 | **deleted** | Untrack `tests/.cassette/`: the directory is no longer in the tree and `.gitignore:85` already covers it, so the goal was satisfied before it ran; no separate evidence |
+| 41 | **verified** | Every `PRD NN` citation names a document on disk: PRD 01 §2's G8 row pointed at "PRD 10's docs contract" (the corpus is 01–08 and no 09 may exist), and `prds/check_consistency.py`'s `cross-refs` pattern matched only a single digit *and* a mandatory `§`, so that sentence was never even seen — it now has one pattern for document existence (`\bPRDs?\s+(\d+)`, any width, section or not) and one for the section, the corpus glob widens from `0*.md` to `[0-9][0-9]-*.md` so a two-digit document can be registered at all, and G8 names PRD 01 §10 row 3 and `tests/docs/test_prd_examples.py` in §10.1's words; evidence in `prds/evidence/41-prd-citation-existence.md` |
 
 The positions still in the queue are deliberately **not** mirrored here: the queue is the only
 source of truth for what runs next, and a second copy of it would drift the way §4's numbering did.
