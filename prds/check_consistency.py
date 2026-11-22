@@ -1,12 +1,13 @@
 #!/usr/bin/env python3
 """Cross-PRD consistency check for the ``lauren-di`` PRD set.
 
-Implements the six checks enumerated in ``prds/README.md`` §6 (the sixth,
-``blocks``, gates every python code fence in the PRDs), a curated
-symbol/default/scope table that encodes the cross-cutting decisions, and one
-baseline-traceability check (``owners``) that keeps
-``prds/evidence/01-conformance-baseline.md`` pointing at the goals that actually
-closed each divergence. Run it from anywhere::
+Implements the seven checks enumerated in ``prds/README.md`` §6 (the sixth,
+``blocks``, gates every python code fence in the PRDs; the seventh,
+``registers``, holds each §6.4 divergence register's prose to its own row set
+and to PRD 08 §5.9's parity register), a curated symbol/default/scope table that
+encodes the cross-cutting decisions, and one baseline-traceability check
+(``owners``) that keeps ``prds/evidence/01-conformance-baseline.md`` pointing at
+the goals that actually closed each divergence. Run it from anywhere::
 
     python3 prds/check_consistency.py
 
@@ -774,6 +775,322 @@ def check_blocks() -> None:
     )
 
 
+# ------------------------------------------- 7. divergence registers
+#: The heading that marks a PRD's own register. Three pages carry one, and the set
+#: is stated so a renamed heading shows up as a failure rather than as a check that
+#: quietly stopped reading anything.
+DIVERGENCE_HEADING = "### 6.4 Intentional divergences from the reference"
+REGISTER_PAGES = (
+    "02-core-container-and-provider-registration.md",
+    "03-scopes-lifecycle-and-disposal.md",
+    "04-custom-providers-tokens-and-multi-bindings.md",
+)
+#: The unqualified claim PRD 02 and PRD 04 both had to stop making. PRD 04 now
+#: names its exception ("The silent cases are **not** all the same, and M-41 is the
+#: exception"), which is the shape this check requires.
+PARITY_SILENT_CLAIM = "same silent cases"
+#: A register row whose ``lauren-di`` column records silence. That is the case a
+#: reader debugs by reading source, and the case a parity claim is most likely to
+#: be wrong about -- which is exactly what happened to R-23.
+SILENT_ROW = re.compile(
+    r"\b(silent|silently|skips?|skipped|unset|leaves?|never\s+set)\b", re.IGNORECASE
+)
+COUNT_WORDS = {
+    "one": 1,
+    "two": 2,
+    "three": 3,
+    "four": 4,
+    "five": 5,
+    "six": 6,
+    "seven": 7,
+    "eight": 8,
+    "nine": 9,
+    "ten": 10,
+}
+#: A typed count of a register's size: "the three divergences in §6.4", "four entries".
+#: The lookbehind rejects the ``4`` in ``§6.4 rows``: a section number is not a count.
+REGISTER_COUNT = re.compile(
+    r"(?<![\d.])\b(one|two|three|four|five|six|seven|eight|nine|ten|\d+)\s+"
+    r"(?:intentional\s+)?(?:divergences?|entries|rows)\b",
+    re.IGNORECASE,
+)
+#: "§6.4 rows 1–4": a claim about a *subset* of the register, which counts the rows
+#: it names rather than the whole table.
+ROW_RANGE = re.compile(r"rows?\s+(\d+)\s*[–-]\s*(\d+)")
+#: "PRD 02 §6.4 row 9" -- a cross-register citation, which must resolve both ways.
+REGISTER_CITATION = re.compile(r"PRD\s+(\d\d)\s*§\s*6\.4\s+row\s+(\d+)")
+PARITY_ID = re.compile(r"P-\d+")
+
+
+def _register(page: Path) -> tuple[list[tuple[int, list[str]]], int, str]:
+    """A page's §6.4 register: its numbered rows, the line after them, and the closing prose.
+
+    ``([], 0, "")`` for a page with no such section, so a page that never had a
+    register is distinguishable from one whose table was emptied.
+    """
+    lines = page.read_text().splitlines()
+    head = next((i for i, ln in enumerate(lines) if ln.strip() == DIVERGENCE_HEADING), None)
+    if head is None:
+        return [], 0, ""
+    end = next((i for i in range(head + 1, len(lines)) if lines[i].startswith("### ")), len(lines))
+    rows: list[tuple[int, list[str]]] = []
+    last = head
+    for index in range(head + 1, end):
+        line = lines[index]
+        if not line.startswith("|"):
+            continue
+        cells = [c.strip() for c in line.strip().strip("|").split("|")]
+        if cells and cells[0].isdigit():
+            rows.append((int(cells[0]), cells))
+            last = index
+    return rows, last + 2, "\n".join(lines[last + 1 : end]).strip()
+
+
+def _parity(page: Path) -> tuple[dict[str, list[str]], str]:
+    """PRD 08 §5.9's rows keyed by ``P-n``, and the body that states the register."""
+    lines = page.read_text().splitlines()
+    head = next((i for i, ln in enumerate(lines) if ln.strip().startswith("### 5.9 ")), None)
+    if head is None:
+        return {}, ""
+    end = next((i for i in range(head + 1, len(lines)) if lines[i].startswith("### ")), len(lines))
+    rows: dict[str, list[str]] = {}
+    for index in range(head + 1, end):
+        line = lines[index]
+        if not line.startswith("|"):
+            continue
+        cells = [c.strip() for c in line.strip().strip("|").split("|")]
+        if cells and PARITY_ID.fullmatch(cells[0]):
+            rows[cells[0]] = cells
+    return rows, "\n".join(lines[head + 1 : end])
+
+
+#: Lines that start a new block of prose: a list item, a table row, a numbered item.
+#: Without this, two adjacent bullets read as one sentence and a claim in one can be
+#: measured against a section named in the other.
+_BOUNDARY = re.compile(r"^([-*|]|\d+\.)\s")
+
+
+def _sentences(text: str) -> list[tuple[int, str]]:
+    """``(first line of the paragraph, sentence)`` pairs, joined across line wrapping.
+
+    The corpus wraps prose at ~100 columns, so a claim and the section it names can
+    sit on different lines. Splitting on ``. `` is safe here because ``§6.4`` has no
+    space after its period.
+    """
+    out: list[tuple[int, str]] = []
+    block: list[str] = []
+    start = 0
+
+    def flush() -> None:
+        nonlocal block
+        if not block:
+            return
+        out.extend(
+            (start, part.strip())
+            for part in re.split(r"(?<=[.!?])\s+(?=[A-Z(`])", " ".join(block))
+            if part.strip()
+        )
+        block = []
+
+    for index, line in enumerate(text.splitlines(), start=1):
+        stripped = line.strip()
+        if not stripped or _BOUNDARY.match(stripped):
+            flush()
+            if stripped:
+                block = [stripped]
+                start = index
+            continue
+        if not block:
+            start = index
+        block.append(stripped)
+    flush()
+    return out
+
+
+def _count_value(word: str) -> int:
+    return COUNT_WORDS.get(word.lower(), int(word) if word.isdigit() else -1)
+
+
+def check_registers() -> None:
+    """Check 7: a divergence register's prose and its row set must agree.
+
+    Two defects of one shape survived every other check, because both halves of each
+    pair stayed well-formed:
+
+    * PRD 02 §6.4 closed with "Everything else in §6.2 is parity: ... same silent
+      cases" while the register had no row for R-23 -- whose silent case *is* a
+      divergence: the reference injects a function-token class-body field (`E-409`,
+      `E-409b`) and this library skips it;
+    * PRD 02 §6.6 said "the three divergences in §6.4" while §6.4 had eight rows.
+
+    Four rules make the pair checkable, and each one fails on a mutation rather than
+    on the corpus happening to be right:
+
+    * **contiguity**: a register's rows are numbered ``1..n``, so a deleted row is
+      visible as a hole rather than as a smaller register;
+    * **the parity claim**: a §6.4 closing sentence may only say "same silent cases"
+      when no row records a silent-case divergence (its ``lauren-di`` column matches
+      :data:`SILENT_ROW`); otherwise it must name the exception, as PRD 02 §6.4 and
+      PRD 04 §6.4 now do;
+    * **counts**: a sentence naming §6.4 with a typed count must state that
+      register's real size, and the §5.9 register sentence's count must equal the
+      entries it enumerates (its ``P-n`` ids plus any backticked ``name=`` keyword);
+    * **the cross-register link**: every ``P-n`` named in a §6.4 row must exist in
+      PRD 08 §5.9, every ``PRD NN §6.4 row N`` citation must resolve to a row that
+      names that ``P-n``, and every §5.9 row marked ``**divergence:**`` must be
+      named by the register sentence.
+    """
+    registers: dict[Path, list[tuple[int, list[str]]]] = {}
+    for page in PRDS:
+        rows, after, closing = _register(page)
+        if not rows:
+            continue
+        registers[page] = rows
+        numbers = sorted(number for number, _ in rows)
+        if numbers != list(range(1, len(rows) + 1)):
+            fail(
+                "registers",
+                f"{page.name} §6.4: rows are numbered {numbers}, expected 1..{len(rows)}",
+            )
+        if PARITY_SILENT_CLAIM in closing:
+            silent = [
+                number for number, cells in rows if len(cells) >= 4 and SILENT_ROW.search(cells[3])
+            ]
+            if silent:
+                fail(
+                    "registers",
+                    f"{page.name}:{after}: the closing sentence claims 'same silent cases' "
+                    f"while row(s) {silent} record a silent-case divergence -- name the "
+                    "exception, as PRD 04 §6.4 does",
+                )
+
+    missing = [name for name in REGISTER_PAGES if not any(p.name == name for p in registers)]
+    if missing:
+        fail(
+            "registers",
+            f"no §6.4 register found in {missing}: the heading moved or the register was "
+            "deleted, so this check is reading nothing",
+        )
+    if not registers:
+        fail("registers", "no divergence register found in prds/*.md")
+        return
+
+    for page in PRDS:
+        for line, sentence in _sentences(page.read_text()):
+            for match in REGISTER_COUNT.finditer(sentence):
+                if "§5.9" in sentence:
+                    continue  # counted against the entries §5.9 enumerates, below
+                if "§6.4" not in sentence:
+                    continue
+                if page not in registers:
+                    continue  # a §6.4 that is not a register ("What validation does not check")
+                claimed = _count_value(match.group(1))
+                rows = registers[page]
+                span = ROW_RANGE.search(sentence)
+                if span is not None:
+                    # "the four divergences (§6.4 rows 1–4)" counts the rows it names,
+                    # not the register, so the subset has to add up and exist.
+                    first, last = int(span.group(1)), int(span.group(2))
+                    expected = last - first + 1
+                    present = {number for number, _ in rows}
+                    absent = [n for n in range(first, last + 1) if n not in present]
+                    if absent:
+                        fail(
+                            "registers",
+                            f"{page.name}:{line}: {span.group(0)!r} names row(s) {absent} "
+                            f"that §6.4 does not have (it has 1..{len(rows)})",
+                        )
+                    label = f"§6.4 rows {first}–{last}"
+                else:
+                    expected = len(rows)
+                    label = f"§6.4 ({expected} row(s))"
+                if claimed != expected:
+                    fail(
+                        "registers",
+                        f"{page.name}:{line}: claims {match.group(0)!r} but {label}: {sentence}",
+                    )
+
+    parity_page = next((p for p in PRDS if p.name.startswith("08-")), None)
+    if parity_page is None:
+        fail("registers", "no PRD 08 page: the parity register cannot be read")
+        return
+    parity, body = _parity(parity_page)
+    if not parity:
+        fail("registers", f"{parity_page.name}: §5.9 parity matrix not found or empty")
+        return
+
+    for page, rows in registers.items():
+        for number, cells in rows:
+            for identifier in PARITY_ID.findall(" ".join(cells)):
+                if identifier not in parity:
+                    fail(
+                        "registers",
+                        f"{page.name} §6.4 row {number}: names {identifier}, which PRD 08 "
+                        "§5.9 does not define",
+                    )
+
+    for identifier, cells in parity.items():
+        for prd, number in REGISTER_CITATION.findall(" ".join(cells)):
+            target = next((p for p in registers if p.name.startswith(f"{prd}-")), None)
+            if target is None:
+                fail(
+                    "registers",
+                    f"{parity_page.name} {identifier}: cites PRD {prd} §6.4 row {number}, "
+                    "which no register on disk holds",
+                )
+                continue
+            row = next((cells for n, cells in registers[target] if n == int(number)), None)
+            if row is None:
+                fail(
+                    "registers",
+                    f"{parity_page.name} {identifier}: cites PRD {prd} §6.4 row {number}, "
+                    f"but {target.name} has {len(registers[target])} row(s)",
+                )
+            elif identifier not in " ".join(row):
+                fail(
+                    "registers",
+                    f"{parity_page.name} {identifier}: cites PRD {prd} §6.4 row {number}, "
+                    "but that row does not name it back",
+                )
+
+    stated = next(
+        (
+            (line, sentence)
+            for line, sentence in _sentences(body)
+            if "divergence register" in sentence
+        ),
+        None,
+    )
+    if stated is None:
+        fail("registers", f"{parity_page.name} §5.9: no sentence states the divergence register")
+        return
+    line, sentence = stated
+    for match in REGISTER_COUNT.finditer(sentence):
+        claimed = _count_value(match.group(1))
+        enumerated = len(set(PARITY_ID.findall(sentence))) + len(
+            set(re.findall(r"`([a-z_]+=)", sentence))
+        )
+        if claimed != enumerated:
+            fail(
+                "registers",
+                f"{parity_page.name}:{line}: the register claims {match.group(0)!r} but the "
+                f"same sentence enumerates {enumerated}: {sentence}",
+            )
+    for identifier, cells in parity.items():
+        if len(cells) >= 4 and "**divergence:**" in cells[3] and identifier not in sentence:
+            fail(
+                "registers",
+                f"{parity_page.name} {identifier}: records a divergence that the register "
+                "sentence does not name",
+            )
+
+    notes.append(
+        f"registers: {len(registers)} §6.4 register(s) — "
+        + ", ".join(f"{p.name[:2]} {len(r)} row(s)" for p, r in sorted(registers.items()))
+        + f"; PRD 08 §5.9 holds {len(parity)} invariant(s)"
+    )
+
+
 def main() -> int:
     check_index()
     check_template()
@@ -784,6 +1101,7 @@ def main() -> int:
     check_scope()
     check_owners()
     check_blocks()
+    check_registers()
 
     print("lauren-di PRD consistency check")
     print("=" * 60)

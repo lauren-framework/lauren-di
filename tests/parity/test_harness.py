@@ -6,7 +6,7 @@ or one property of the §5.9 table, and every expectation is derived from the PR
 or from the suite's own source — never from a second copy of the same list:
 
 * the rows come from §5.9's table, so adding a row there fails until it has a test;
-* the divergence register's three keys come from §5.9's own sentence;
+* the divergence register's keys — and its stated size — come from §5.9's own sentence;
 * "no invariant imports either implementation" is an AST scan of
   ``test_matrix.py``, not a promise in a docstring.
 """
@@ -18,7 +18,7 @@ import pathlib
 
 import pytest
 from backends import BACKENDS, DIVERGENCES, REFERENCE_ROOT, Backend
-from spec import MATRIX, RECORDED, prd_register_rows, prd_rows
+from spec import MATRIX, RECORDED, prd_register_rows, prd_register_size, prd_rows
 
 pytestmark = pytest.mark.integration
 
@@ -54,14 +54,21 @@ def test_every_matrix_row_has_a_test_carrying_its_id(row: str) -> None:
 
 
 def test_the_register_has_exactly_the_entries_the_prd_names() -> None:
-    """§5.9 names three deliberate divergences; the register must hold exactly those."""
+    """§5.9 names the deliberate divergences; the register must hold exactly those.
+
+    Both halves are read from §5.9: the row ids from its sentence, the size from
+    the word it states. Nothing here repeats either, so a new entry cannot be
+    added to the adapter without the prose, and the prose cannot claim a size the
+    adapter does not hold.
+    """
     named = set(prd_register_rows()) | {"values"}
     assert named == set(DIVERGENCES), (
         f"PRD 08 §5.9 names the register as {sorted(named)}, backends.py holds "
         f"{sorted(DIVERGENCES)}"
     )
-    assert len(DIVERGENCES) == 3, (
-        f"§5.9 says the register is complete at three entries, found {len(DIVERGENCES)}"
+    assert prd_register_size() == len(DIVERGENCES), (
+        f"§5.9 says the register is complete at {prd_register_size()} entries, "
+        f"found {len(DIVERGENCES)}"
     )
 
 

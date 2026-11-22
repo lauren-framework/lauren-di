@@ -200,6 +200,15 @@ The final consistency pass (goal #10) checks, and this file records:
    deliberately partial. An unmarked block is a failure, because an unmarked
    block is one no gate has decided about — which is how the corpus came to hold
    88 blocks that nothing compiled or ran.
+7. **Divergence registers** (goal #56) — each `§6.4 Intentional divergences from
+   the reference` table is numbered `1..n` with no holes, and its prose agrees
+   with it: a sentence naming `§6.4` with a typed count must state the register's
+   real size (or the size of the row range it names), and a closing sentence may
+   only claim "same silent cases" when no row records a silent-case divergence.
+   The cross-register link is checked both ways as well: every `P-n` named in a
+   `§6.4` row must exist in PRD 08 §5.9, every `PRD NN §6.4 row N` citation must
+   resolve to a row that names that `P-n` back, and every §5.9 row marked
+   `**divergence:**` must be named by the register sentence.
 
 Result of the last run: **passed** (2026-11-21, goal #10). Rerun with
 `python3 prds/check_consistency.py` — exit 0 means clean; the script *is* the check, not a
@@ -215,6 +224,7 @@ unguarded `from lauren import`) each make it exit 1.
 | Symbol consistency | curated table green: `shutdown()` return, `Depends[T] is T`, the public surface, `resolve` keywords, five override kinds and their scope-inheritance rows, `Scope` = 0/1/2, the 18-field `Provider`, and no `container.close()` |
 | Scope discipline | script-checked: no PRD imports a web framework, and in PRDs 01–07 a code sample may `import lauren` only inside PRD 02's `LAUREN_DI_PARITY_TARGET`-guarded shim (0 unguarded samples); `HTTP`/`ASGI` nouns otherwise appear only in non-goals, prior art and 08's compatibility notes |
 | PRD code blocks | 88 python blocks in 8 pages — 88 compile, 28 marked `run` (executed by `tests/docs/test_prd_examples.py`), 60 `fragment`, 0 unmarked |
+| Divergence registers | 3 `§6.4` registers — PRD 02's 9 rows, PRD 03's 11, PRD 04's 10 — every typed count and parity claim agrees with its row set, and PRD 08 §5.9's 13 invariants cross-reference them both ways |
 
 ### 6.1 Findings fixed by this pass
 

@@ -12,3 +12,5 @@ E-408b Path is ExtractionMarker     -> True
 E-408c Header is ExtractionMarker   -> True
 E-408d Depends module               -> lauren.extractors
 E-408e Depends is generic alias?    -> type | supports [] -> True
+E-409  UsesDependsFunction field_deps= [('clock', 'make_clock')]
+E-409b UsesDependsFunction clock -> Clock

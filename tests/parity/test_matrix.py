@@ -284,7 +284,7 @@ def test_p9_alias_chains_resolve_and_cycles_fail(backend: Backend) -> None:
 
 
 # ---------------------------------------------------------------------------
-# P-10 … P-12: lifecycle, which is where the second divergence lives
+# P-10 … P-13: lifecycle and the field token, where the rest diverge
 # ---------------------------------------------------------------------------
 
 
@@ -396,6 +396,115 @@ def test_p12_one_builds_overrides_never_leak_into_another(backend: Backend) -> N
     assert run(backend.resolve(second, Config)) == "two"
     assert run(backend.resolve(first, Config)) == "one", (
         "resolving the second container must not change what the first one builds"
+    )
+
+
+def test_p13_a_function_token_in_a_class_body_field(backend: Backend) -> None:
+    """P-13 (divergent): a *function* token in a class-body field.
+
+    `Depends` is an `ExtractionMarker` in the reference, so `Depends[make_clock]`
+    evaluates to `Annotated[make_clock, Depends]` and the field collector unwraps
+    it: the field is injected with the factory's value (`E-409`, `E-409b`). In
+    `lauren_di` the same expression *is* the function (D-25), which is not a
+    type, so PRD 02 §5.6's field gates skip it and the attribute is never set.
+
+    P-6 is the neighbouring case, where the reference *raises* on a field it
+    cannot resolve. Here it resolves, so a reader who only had P-6 would think
+    the library's silence and the reference's failure were the same divergence.
+    Both outcomes are recorded, so neither side can drift unnoticed.
+    """
+
+    @backend.injectable()
+    class Clock:
+        pass
+
+    @backend.injectable()
+    def make_clock() -> Clock:
+        return Clock()
+
+    @backend.injectable()
+    class Uses:
+        clock: backend.depends(make_clock)
+
+    container = backend.container()
+    container.register(Clock)
+    container.register(make_clock)
+    container.register(Uses)
+    container.compile()
+    instance = run(backend.resolve(container, Uses))
+    recorded = RECORDED["P-13"][backend.name]
+
+    if recorded == "injects":
+        assert isinstance(getattr(instance, "clock", None), Clock), (
+            f"{backend.name} left a function-token field unset, but the register records "
+            "that it injects the factory's value"
+        )
+        return
+
+    assert recorded == "ignored", f"unexpected recorded outcome {recorded!r}"
+    assert not hasattr(instance, "clock"), (
+        f"{backend.name} populated a function-token field, but the register records that "
+        "the field gates skip it; the divergence in backends.py is stale"
+    )
+
+
+# ---------------------------------------------------------------------------
+# P-14: the alias edge, where only one side follows the chain
+# ---------------------------------------------------------------------------
+
+
+def test_p14_an_alias_edge_is_judged_by_the_terminal_scope(backend: Backend) -> None:
+    """P-14 (divergent): only one side follows an alias when judging a scope edge.
+
+    The reference stamps every alias row `SINGLETON` and never follows it, so a
+    singleton consumer of a request-scoped target reached through an alias
+    compiles and the row keeps claiming `SINGLETON` (`E-47`, `E-49`). The library
+    walks the chain, refuses the edge and reports the terminal scope (D-27).
+    Both outcomes are recorded, so a side that changes its mind fails here.
+    """
+    from typing import Annotated
+
+    Scope = backend.attribute("Scope")
+    Inject = backend.attribute("Inject")
+    use_existing = backend.use_existing
+
+    @backend.injectable(scope=Scope.REQUEST)
+    class RequestScoped:
+        pass
+
+    @backend.injectable()
+    class SingletonConsumer:
+        def __init__(self, dep: Annotated[RequestScoped, Inject("ALIAS")]) -> None:
+            self.dep = dep
+
+    container = backend.container()
+    container.register(RequestScoped)
+    container.register_custom(use_existing(provide="ALIAS", existing=RequestScoped))
+    container.register(SingletonConsumer)
+
+    recorded = RECORDED["P-14"][backend.name]
+
+    try:
+        container.compile()
+    except backend.error("DIScopeViolationError") as exc:
+        assert recorded == "rejects", (
+            f"{backend.name} rejected a narrowing edge through an alias, but the register "
+            f"records {recorded!r}; the divergence in backends.py is stale"
+        )
+        assert {"dependent_scope", "dependency_scope"} <= set(exc.detail), (
+            f"detail must report both scopes, got {sorted(exc.detail)}"
+        )
+        assert exc.detail["dependency_scope"] == "request", (
+            "the edge must be judged by the terminal target's scope, not the alias row's"
+        )
+        return
+
+    assert recorded == "alias-scope-blind", (
+        f"{backend.name} accepted a narrowing edge through an alias, but the register "
+        f"records {recorded!r}"
+    )
+    assert container.get_provider("ALIAS").scope == Scope.SINGLETON, (
+        "the scope-blind side must still report the placeholder on the alias row"
     )
 
 

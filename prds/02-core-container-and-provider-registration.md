@@ -711,7 +711,7 @@ records what the reference implementation actually did on 2026-11-21, not what i
 | R-20 | An annotated parameter with a default is collected; a missing provider falls back to the default | `_instantiate` + `_callable_default_map` | `None` without a provider, the instance with one | T02-20 |
 | R-21 | `Annotated[T, Inject(x)]` resolves by `x` in constructor and field position | `_extract_inject_token` | token `"DB_TOKEN"` in both positions | T02-21 |
 | R-22 | Multiple `Inject` markers: the first wins, silently | `_extract_inject_token` | first marker used | T02-22 |
-| R-23 | `Depends[T]` resolves by `T` in both positions **when `T` is a type**; a non-type `T` in field position is skipped by §5.6's gates 4/6 and is written `Annotated[T, Inject(tok)]` | `_unwrap_annotated` (reference); the library needs no unwrapping because `Depends[T] is T` (D-25) | field token was the inner function/class, which the library skips silently | T02-23 |
+| R-23 | `Depends[T]` resolves by `T` in both positions **when `T` is a type**; a non-type `T` in field position is skipped by §5.6's gates 4/6 and is written `Annotated[T, Inject(tok)]` | `_unwrap_annotated` (reference); the library needs no unwrapping because `Depends[T] is T` (D-25) | field token was the inner function/class (probe `E-63` for a class, `E-409` for a function), which the library skips silently when it is a function | T02-23 |
 | R-24 | Field gate 1: only own annotations are collected | `_collect_field_deps` | inherited annotation produced no field dep | T02-24 |
 | R-25 | Field gate 2: a class-body value excludes the field | `_collect_field_deps` | `d: Dep = None` → `field_deps=()` | T02-25 |
 | R-26 | Field gate 3: dataclass fields are never DI fields | `_collect_field_deps` | `@dataclass` with `d: Dep` → `field_deps=()` | T02-26 |
@@ -776,12 +776,17 @@ they are the cases a user will otherwise debug by reading source.
 | 3 | Non-class non-callable target | silently installed as a function provider | `InvalidProviderError` | an unresolvable registration is a bug, not a feature | D-16 |
 | 4 | Generator + `Scope.TRANSIENT` | `StartupError` | `LifecycleConfigError` | leaves live under `DIError`; PRD 01 §7 drops `StartupError` | D-17 |
 | 5 | `resolve(..., framework_values=...)` | keyword name | `resolve(..., values=...)` | generic, transport-agnostic | D-13 |
-| 6 | Extractor markers in field collection | `Path[int]`-style fields collected via `_is_extractor_marker` | markers are `Depends`/`Inject` only | no extractors in this library; predicate seam is D-9, PRD 08 | D-9 |
+| 6 | Extractor markers in field collection | `Path[int]`-style fields collected via `_is_extractor_marker` | markers are `Depends`/`Inject` only | no extractors in this library; predicate seam is D-9, P-6 in PRD 08 §5.9 | D-9 |
 | 7 | Marker attribute name | `__lauren_injectable__` | renamed (D-11), not exported | avoid implying a framework dependency | D-11 |
 | 8 | Positional-only dependency | collected, then `TypeError` at construction | `UnresolvableParameterError` at registration | the dep can never be passed by keyword; fail at the earliest point that can explain itself | D-19 |
+| 9 | A **function** token in a class-body field | collected and injected — the factory's value (`E-409`, `E-409b`) | skipped by the field gates, so the attribute is never set (§5.6 gates 4/6) | `Depends[fn] is fn` (D-25) and a function is not a type, so the field is not a dependency; the typed spelling of the same token is `Annotated[T, Inject(fn)]` (probe `E-55`); P-13 in PRD 08 §5.9 | D-25, D-54 |
 
 Everything else in §6.2 is parity: same token, same exception class name (modulo the `DIError`
-hierarchy), same ordering, same silent cases.
+hierarchy), same ordering, and the same silent skips for an unresolved string annotation (R-27), a
+primitive or non-`list` generic (R-28) and a class-body default (R-25). The silent cases are **not**
+all the same, and R-23 is the exception: a class-body field whose `Depends[T]` names a *function* is
+skipped here and injected by the reference (`E-409`, `E-409b`). That is row 9 above, and it is
+registered in PRD 08 §5.9 as P-13 so the two documents cannot disagree about it.
 
 ### 6.5 Module layout and import graph
 
@@ -805,8 +810,8 @@ in-tree (PRD 01 §6.4, D-3) because `typing_extensions` is not an allowed depend
 ### 6.6 Feasibility
 
 - **The algorithms move unchanged.** `register` is 107 lines, the introspection family ~630 lines,
-  `_construct_class` ~75. The only edits are the three divergences in §6.4 plus deleting the extractor
-  branch; no algorithm is rewritten.
+  `_construct_class` ~75. The only edits are the divergences listed in §6.4 plus deleting the
+  extractor branch; no algorithm is rewritten.
 - **The stack walk is kept, with its cost documented.** `_resolve_class_signature_hints` and
   `_safe_type_hints` merge *every* frame's locals into `localns`, nearest frame first (`setdefault`
   gives that precedence). That is what makes a provider declared inside a test function resolve, so

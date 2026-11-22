@@ -73,7 +73,7 @@ recorded as its own goal; §6.5 states the checksum-bearing rule the harness mus
 | G2 | Symbol-by-symbol mapping is complete enough to migrate a file mechanically | §5.3 covers imports, exports, markers, container methods and exceptions |
 | G3 | The three HTTP-bound seams get generic replacements | §5.4 (`values`), §5.5 (`field_predicate`), §5.6 (`startup`/`shutdown`) |
 | G4 | A parity strategy that runs against **both** implementations | §5.9's adapter harness, prototyped and green on the reference (`E-430`…`E-433`) |
-| G5 | A parity matrix naming invariant, fixture and expected outcome | §5.10, P-1…P-12 |
+| G5 | A parity matrix naming invariant, fixture and expected outcome | §5.9, P-1…P-14 |
 | G6 | D-10 is decided, with a removal schedule | D-50, §5.8 |
 | G7 | Marker-attribute rename decided and recorded | D-51, MC-01…MC-03 |
 | G8 | No new contradiction with PRDs 01–07 | §6.2 lists the two amendments, both recorded in their owning PRD |
@@ -627,17 +627,25 @@ Each row is one invariant, the fixture that establishes it, and the outcome both
 | P-3 | A declared value token is supplied out of band | `backend.value_token()` + `container(value_tokens=…)` | resolved attribute **is** the sentinel object |
 | P-4 | A missing provider names the token | `@injectable` depending on an unregistered class | `MissingProviderError` with `detail["token"]` on both; library raises at `compile()`, reference at `compile()` for this shape (`E-433`) |
 | P-5 | Class-body field injection honours the annotation's token (`Depends[T]` is `T`, D-25) | `@injectable` with `x: Repo` (`Annotated[Repo, Inject(fn)]` for a function token) | field populated from the container |
-| P-6 | An HTTP marker is not a DI declaration | field annotated `Annotated[str, Path]` | **divergence:** reference raises `MissingProviderError('str')` (`E-404`); library leaves the field alone |
+| P-6 | An HTTP marker is not a DI declaration | field annotated `Annotated[str, Path]` | **divergence:** reference raises `MissingProviderError('str')` (`E-404`); library leaves the field alone (recorded as PRD 02 §6.4 row 6) |
 | P-7 | Scope narrowing violation is rejected | singleton depending on a `REQUEST` provider | `DIScopeViolationError` with `dependent_scope`/`dependency_scope` |
 | P-8 | `multi=True` collects into `list[T]` | two multi registrations of the same token | `resolve(list[T])` returns both, registration order |
 | P-9 | Alias chains resolve and cycles fail | `use_existing` chain, then a self-alias | value forwarded; cycle → `CircularDependencyError` |
 | P-10 | Generator providers tear down in reverse order | two generator providers with an append list | teardown order is `[b, a]`; a raised `DestructError` does not stop the second |
 | P-11 | Singleton hooks fire at startup, request hooks at resolve | one `SINGLETON` + one `REQUEST` class with `@post_construct` | library: startup then resolve; **divergence:** reference fires neither at resolve and needs a scheduler (`E-420`, `E-423`) |
 | P-12 | One build's overrides never leak into another | two containers, one `OverridePlan` | different values per container; no order dependence (PRD 07 CG-1) |
+| P-13 | A function token in a class-body field | `@injectable` with `clock: Depends[make_clock]` (a function provider) | **divergence:** reference collects the field and injects the factory's value (`E-409`, `E-409b`); library leaves the field unset (PRD 02 §5.6 gates 4/6, recorded as PRD 02 §6.4 row 9; D-25) |
+| P-14 | A consumer edge through an alias is judged by the terminal target's scope | singleton consumer of `Annotated[Req, Inject("ALIAS")]`, `Req` request-scoped, `ALIAS` an alias of `Req` | **divergence:** reference never follows the alias, so the edge is accepted and the row reports `SINGLETON` (`E-47`, `E-49`); library raises `DIScopeViolationError` and reports the terminal scope (PRD 04 §5.5 rule 2, recorded as PRD 04 §6.4 row 3; D-27) |
 
-Rows P-6, P-11 and the `values=` keyword are the **complete** divergence register: three entries,
-each already a decision in an earlier PRD (D-25, D-53, D-52). Every other invariant must hold on both
-sides with no adapter help beyond construction.
+Rows P-6, P-11, P-13, P-14 and the `values=` keyword are the **complete** divergence register: five
+entries, each already a decision in an earlier PRD (D-25, D-27, D-52, D-53, D-54). Every other
+invariant must hold on both sides with no adapter help beyond construction.
+
+P-6 and P-13 are adjacent but not the same divergence, and the register keeps them apart on purpose.
+Both are class-body fields the two sides disagree about, but the reference **raises** on P-6's
+`Annotated[str, Path]` (`E-404`) and **resolves** P-13's function token (`E-409`); the library leaves
+the field alone in both cases. A register that named only P-6 would describe the library's silence as
+the mirror of a failure, when for a function token it is the mirror of a success.
 
 ### 5.10 Migration codemod
 
@@ -767,7 +775,7 @@ catalogue (MC-21), which is what PRD 05 §7's "framework-only" column already as
 | 3 — Predicate | `0.2.0` | `field_predicate`, `Depends[T] is T`, refuse extractor markers | T08-12…T08-15 green |
 | 4 — Lifecycle | `0.2.0` | `startup()`/`shutdown()`, internalise scheduler plumbing, delete `instance_lifecycle_hooks` | T08-16…T08-19 green |
 | 5 — Errors | `0.2.0` | single `DIError` base, drop the HTTP half | T08-20…T08-22 green |
-| 6 — Parity | `0.3.0` | adapter harness, P-1…P-12, divergence register enforced | T08-28…T08-34 green |
+| 6 — Parity | `0.3.0` | adapter harness, P-1…P-14, divergence register enforced | T08-28…T08-34 green |
 | 7 — Migration | `0.3.0` | codemod, `lauren.compat` contract published, docs page | T08-23…T08-27 green |
 
 Phase 0 is first on purpose: every later phase's evidence depends on measuring the intended artifact.
@@ -831,7 +839,7 @@ from" and "consumed by".
 | T08-28 | MC-28 | no parity invariant imports `lauren` or `lauren_di` directly |
 | T08-29 | MC-29 | an unimportable backend yields SKIP for every invariant and zero PASS |
 | T08-30 | MC-30 | no invariant asserts `repr`, `id`, or `__all__` |
-| T08-31 | MC-31 | an unexpected divergence fails the run; the register has exactly three entries |
+| T08-31 | MC-31 | an unexpected divergence fails the run; the register's size is the one §5.9 states, and `test_harness` parses that word rather than repeating it |
 | T08-32 | MC-32 | the session fails when `lauren.__file__` is outside the pinned checkout |
 | T08-33 | MC-33 | each test gets a fresh container per backend; no module-level container in the suite |
 | T08-34 | MC-34 | every §5.1 row has a disposition and every §5.9 invariant has a recorded outcome |
@@ -854,4 +862,4 @@ marker against the library alone (where the reference backend SKIPs).
 | Behavioural-parity strategy runnable against both | §5.8 (harness), §5.9 (matrix), `E-430`…`E-433` |
 | Deprecation/alias strategy | §5.7, D-50, MC-23…MC-27 |
 | Every coupling has a replacement or a "not supported" | §5.1, C-1…C-24 |
-| Parity matrix names invariant, fixture, expected outcome | §5.9, P-1…P-12 |
+| Parity matrix names invariant, fixture, expected outcome | §5.9, P-1…P-14 |

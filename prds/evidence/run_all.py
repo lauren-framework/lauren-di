@@ -159,6 +159,26 @@ def run_probe(script: Path, env: dict[str, str]) -> tuple[int, str]:
     return completed.returncode, ADDR_RE.sub("0x<addr>", transcript)
 
 
+def normalise_origin(origin: str) -> str:
+    """Write ``lauren.__file__`` as the artifact, not as this machine's path.
+
+    ``origin`` is absolute, so recording it verbatim made the corpus
+    machine-specific in *two* places: the transcript header (fixed first, see
+    :func:`header`) and the committed ``output/ids.json``, whose ``reference``
+    key still read ``/tmp/ref-clean/lauren/__init__.py``. Re-recording on a
+    machine that keeps the reference elsewhere then dirtied the index with a
+    path-only diff no reviewer can interpret, and the index is the one artifact
+    under ``output/`` that is not a ``.out`` transcript, so the corpus scan in
+    ``tests/unit/test_evidence_transcripts.py`` never looked at it.
+
+    The root is where the evidence was captured; the ``_di/__init__.py`` sha256
+    recorded beside it is *what* was captured, and that is the part worth
+    comparing byte for byte.
+    """
+    suffix = "/lauren/__init__.py"
+    return f"{REFERENCE_PLACEHOLDER}{suffix}" if origin.endswith(suffix) else origin
+
+
 def header(script: Path, origin: str, di_sha: str, code: int) -> str:
     """The transcript header: what was measured, not where this machine keeps it.
 
@@ -169,13 +189,12 @@ def header(script: Path, origin: str, di_sha: str, code: int) -> str:
     ``/home/runner/work/lauren-di/lauren-framework``, on all 24 transcripts and on
     nothing else (measured). The root is where the evidence was captured; the
     ``_di/__init__.py`` sha256 below it is *what* was captured, and that is the
-    part worth comparing byte for byte.
+    part worth comparing byte for byte. :func:`normalise_origin` is the same rule
+    applied to the committed index.
     """
-    suffix = "/lauren/__init__.py"
-    label = f"{REFERENCE_PLACEHOLDER}{suffix}" if origin.endswith(suffix) else origin
     return (
         f"# probe: {script.relative_to(EVIDENCE).as_posix()}\n"
-        f"# lauren.__file__: {label}\n"
+        f"# lauren.__file__: {normalise_origin(origin)}\n"
         f"# reference._di.__init__.py sha256: {di_sha}\n"
         f"# exit: {code}\n"
     )
@@ -417,7 +436,7 @@ def main(argv: list[str] | None = None) -> int:
     uncited = sorted(all_emitted - cited)
 
     summary = {
-        "reference": origin,
+        "reference": normalise_origin(origin),
         "reference_di_sha256": di_sha,
         "probes": {name: sorted(ids) for name, ids in sorted(emitted.items())},
         "cited": sorted(cited),
@@ -425,8 +444,24 @@ def main(argv: list[str] | None = None) -> int:
         "emitted_not_cited": uncited,
         "cited_not_emitted": missing,
     }
-    if not args.check:
-        (OUTPUT / "ids.json").write_text(json.dumps(summary, indent=2, sort_keys=True) + "\n")
+    # The index is the one artifact under output/ that is not a .out transcript,
+    # so it needs the same treatment as one: --check compares it (never writes,
+    # or the drift it reports is destroyed) and a re-record on a machine that
+    # keeps the reference elsewhere is a no-op once `reference` is normalised.
+    index = OUTPUT / "ids.json"
+    rendered = json.dumps(summary, indent=2, sort_keys=True) + "\n"
+    try:
+        index_label = index.relative_to(EVIDENCE).as_posix()
+    except ValueError:  # pragma: no cover - only when OUTPUT is redirected
+        index_label = index.name
+    index_drift = ""
+    if args.check:
+        if not index.is_file():
+            index_drift = f"{index_label} (no recorded index)"
+        elif index.read_text(encoding="utf-8") != rendered:
+            index_drift = f"{index_label} (disagrees with this run)"
+    else:
+        index.write_text(rendered, encoding="utf-8")
 
     print("\naudit")
     print(f"  cited ids in prds/*.md : {len(cited)}")
@@ -437,6 +472,12 @@ def main(argv: list[str] | None = None) -> int:
         print(f"  CITED BUT NOT EMITTED  : {len(missing)}")
         for value in missing:
             print(f"    - {value}")
+    if index_drift:
+        print(f"  INDEX THAT CHANGED     : {index_drift}")
+        print(
+            "    re-record with `python prds/evidence/run_all.py` and commit "
+            "output/ids.json alongside the transcripts it summarises"
+        )
     if drift:
         print(f"  transcripts that changed: {len(drift)}")
         for name in drift:
@@ -457,7 +498,7 @@ def main(argv: list[str] | None = None) -> int:
         for failure in failures:
             print(f"    - {failure}")
 
-    ok = not failures and not missing and not drift
+    ok = not failures and not missing and not drift and not index_drift
     print("\nRESULT:", "PASS" if ok else "FAIL")
     return 0 if ok else 1
 

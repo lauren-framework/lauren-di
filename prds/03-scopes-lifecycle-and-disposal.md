@@ -248,6 +248,7 @@ S->T DIScopeViolationError(singleton/transient) | S->R DIScopeViolationError(sin
 | Function-provider parameters (`provider.deps`) | yes | verified: a singleton `@injectable()` function taking a request-scoped parameter raises at `compile()` |
 | Class-body field dependencies (`provider.field_deps`) | yes | verified: a singleton with `d: RequestScoped` raises at `compile()` |
 | Each member of a `list[T]` multi-binding | yes, per member | `resolve_one` calls `_check_scope` inside its `list[T]` loop (PRD 04) |
+| An edge through an `existing` alias | yes, judged by the **terminal** target's scope | `_alias_terminal` walks the chain before comparing; a dangling link or a cycle keeps its own error instead of becoming a scope violation (D-27, PRD 04 §5.5 rule 2) |
 | A `values`-seeded token (no provider) | no — there is no provider to have a scope | `framework_tokens` are skipped |
 | Parameters satisfied by a default while no provider exists | no — no edge | `compile`'s `defaults.get(name)` escape |
 
@@ -263,6 +264,7 @@ the cost is one traversal (PRD 05 §5 owns the traversal itself and its other ch
 | `detail.dependent_scope` | `consumer.scope.label` |
 | `detail.dependency_scope` | `dependency.scope.label` |
 | `detail.dependency` | `_describe(token)` |
+| `detail.alias` | `_describe(alias)` — present only when the edge went through an `existing` alias, so a caller can tell which indirection to remove |
 | Raised by | `compile()`, `resolve()` (via lazy compile) |
 
 **The escape hatch is not a loop-hole.** A provider that genuinely needs per-request data should be

@@ -139,9 +139,14 @@ ByInject   -> Clock()
 The reference **injects** a function-token class-body field; `lauren_di` skips it. That is a real
 fourth behavioural divergence, and it is not in PRD 08 §5.9's register ("the complete divergence
 register: three entries"), PRD 04 §6.4's list, or `tests/parity/backends.py`'s `DIVERGENCES` — P-6
-covers `Annotated[str, Path]`, where the reference *raises* rather than resolves. M-41 now states the
-behaviour and cites this file; registering the divergence in all three places is queued as a
-follow-up goal rather than smuggled into a documentation reconciliation.
+covers `Annotated[str, Path]`, where the reference *raises* rather than resolves. M-41 states the
+behaviour and cites this file.
+
+**Closed by goal #53**, which registered it: `prds/evidence/prd08/p2.py` emits `E-409` and
+`E-409b` for the function half this file measured by hand, PRD 08 §5.9 gained the **P-13** row and
+now says "four entries", PRD 04 §6.4 gained row 10 and stopped calling every silent case parity,
+and `tests/parity/test_matrix.py::test_p13_a_function_token_in_a_class_body_field` asserts both
+sides so neither can change its mind unnoticed. See `53-function-token-divergence.md`.
 
 This also corrects the goal's own framing: the skip is *internally* consistent with `count: int`, but
 it is **not** "the same bucket" as P-6 from the reference's point of view — P-6's reference raises,

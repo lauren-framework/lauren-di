@@ -1031,7 +1031,7 @@ class DIContainer:
             raise self._duplicate_error(token)
         provider = Provider(
             cls=token,
-            scope=Scope.SINGLETON,  # placeholder; the real scope is the alias target's
+            scope=Scope.SINGLETON,  # placeholder; validation stamps the terminal scope (D-27)
             provides=(),
             multi=False,
             deps=(),
@@ -1409,6 +1409,33 @@ class DIContainer:
         """
         return ResolutionScope(self, values=values)
 
+    def _alias_terminal(self, provider: Provider) -> Provider | None:
+        """The provider a consumer edge through ``provider`` actually acquires.
+
+        An ``existing`` alias is a redirect: no factory, no instance of its own
+        and no scope of its own (D-27, PRD 04 §5.5 rule 2). The scope the
+        narrowing rule must compare is therefore the **terminal** target's, not
+        the alias row's placeholder.
+
+        Returns ``None`` when the chain is broken or cyclic. The caller then
+        keeps the placeholder scope, so :meth:`compile` reports the real defect
+        with its own error and its own precedence -- ``MissingProviderError`` for
+        a dangling link, ``CircularDependencyError`` for a loop -- rather than
+        inventing a scope violation on the way there.
+        """
+        seen: set[Any] = set()
+        current = provider
+        while current.provider_kind == "existing":
+            token = current.cls
+            if token in seen:
+                return None
+            seen.add(token)
+            target = self._providers.get(current.alias_target)
+            if target is None:
+                return None
+            current = target
+        return current
+
     # -- Compilation -------------------------------------------------------
 
     def compile(self) -> None:
@@ -1450,16 +1477,32 @@ class DIContainer:
             table with a single comparison — a dependent outlives its
             dependency exactly when ``consumer_scope > dependency_scope``.
             """
-            if for_scope > chosen.scope:
+            # An alias carries no scope of its own, so the edge is judged
+            # against the terminal target (D-27, PRD 04 §5.5 rule 2). The chain
+            # is walked here instead of reading the row's ``scope`` because
+            # ``visit`` may not have rewritten that row yet: registration order
+            # decides which provider is visited first, and the answer must not
+            # depend on it. A broken or cyclic chain yields ``None`` and the
+            # placeholder scope stands, so the real defect is reported below by
+            # its own error.
+            terminal = self._alias_terminal(chosen)
+            dependency = chosen if terminal is None else terminal
+            if for_scope > dependency.scope:
+                through = (
+                    "" if dependency is chosen else f" (through alias {_describe(chosen.cls)})"
+                )
+                detail = {
+                    "dependent": dependent,
+                    "dependent_scope": for_scope.label,
+                    "dependency_scope": dependency.scope.label,
+                    "dependency": _describe(dependency.cls),
+                }
+                if dependency is not chosen:
+                    detail["alias"] = _describe(chosen.cls)
                 raise DIScopeViolationError(
                     f"{for_scope.label.capitalize()} {dependent} depends on "
-                    f"{chosen.scope.label}-scoped {_describe(chosen.cls)}",
-                    detail={
-                        "dependent": dependent,
-                        "dependent_scope": for_scope.label,
-                        "dependency_scope": chosen.scope.label,
-                        "dependency": _describe(chosen.cls),
-                    },
+                    f"{dependency.scope.label}-scoped {_describe(dependency.cls)}{through}",
+                    detail=detail,
                 )
 
         def resolve_one(
@@ -1582,6 +1625,12 @@ class DIContainer:
                         },
                     )
                 visit(target_provider)
+                # D-27: the row reports the terminal target's scope, so
+                # ``get_provider(alias).scope`` -- and every other reader of the
+                # row -- cannot claim SINGLETON for a request-scoped target. The
+                # recursion above is post-order, so an intermediate alias has
+                # already been stamped and ``target_provider.scope`` is terminal.
+                provider.scope = target_provider.scope
                 stack.pop()
                 color[tok] = BLACK
                 return

@@ -55,26 +55,30 @@ token. The coupling exists because the reference's `resolve` reuses the multi-bi
 convenience. §5.7 replaces it with a rule: **scalar means scalar; `list[T]` means collection**, and
 more than one binding to a scalar token is an ambiguity error (D-26).
 
-### 1.3 Aliases are scope-blind
+### 1.3 Aliases are transparent to scope validation
 
-`register_alias` creates a provider row with `scope=Scope.SINGLETON` as a placeholder, no factory, and
-`alias_target` pointing at the real token. Resolution forwards to the target, so the *instance* is
-correctly request-scoped. Validation does not follow the alias, though:
+`register_alias` creates a provider row with no factory and `alias_target` pointing at the real token,
+so resolution forwards and the *instance* is the target's. The row's `scope` is a placeholder until
+validation: `compile()` walks every alias chain to its terminal provider and stamps that scope on the
+row (D-27), so a diagnostic cannot claim `SINGLETON` for a request-scoped target:
 
 ```
 # singleton consumer, request-scoped target, reached through an alias
 c.register(Req)              # @injectable(scope=REQUEST)
 c.register_alias("ALIAS", Req)
 c.register(Sink)             # @injectable() def __init__(self, x: Annotated[Req, Inject("ALIAS")])
-c.compile()                  # no error        <- probe E-47
-c.get_provider("ALIAS").scope  # Scope.SINGLETON, target is REQUEST  <- probe E-49
+c.compile()                  # DIScopeViolationError: singleton Sink depends on
+                             # request-scoped Req (through alias 'ALIAS')
+c.get_provider("ALIAS").scope  # Scope.REQUEST — the terminal target's scope
 ```
 
-The same edge written directly — `def __init__(self, x: Req)` — raises `DIScopeViolationError` at
-`compile()` (probe E-48). So an alias is a way to smuggle a request-scoped dependency into a
-singleton: exactly the captured-dependency bug PRD 03 exists to prevent, reachable by adding one
-indirection. §5.5 makes an alias transparent to validation (D-27): it carries no scope of its own, and
-every consumer edge is checked against the terminal target.
+The edge is judged by the same comparison a direct one is (`consumer.scope > terminal.scope`), with
+the same `dependent_scope`/`dependency_scope` detail and one extra key naming the alias. So the same
+edge written directly — `def __init__(self, x: Req)` — raises the same error (probe E-48). Before
+D-27 the row stayed `SINGLETON` and the edge was never checked, which made an alias a way to smuggle a
+request-scoped dependency into a singleton: exactly the captured-dependency bug PRD 03 exists to
+prevent, reachable by adding one indirection. Probes E-47 and E-49 record that pre-fix behaviour, and
+the divergence from the reference it created is registered as PRD 08 §5.9's P-14.
 
 ### 1.4 Three different error shapes for one mistake
 
@@ -414,8 +418,9 @@ Rules:
    never gets a teardown entry.
 2. **An alias has no scope of its own.** Consumers are validated against the **terminal** target's
    scope, walking the chain (D-27). After validation, `get_provider(alias).scope` reports the
-   terminal scope, so diagnostics do not claim `SINGLETON` for a request-scoped target (contrast
-   probe E-49).
+   terminal scope, so diagnostics do not claim `SINGLETON` for a request-scoped target (probe E-49
+   records the pre-D-27 placeholder). Before validation the row still carries that placeholder, which
+   is why the contract is stated as *after* validation.
 3. **Chains are followed to the terminal provider.** `A -> B -> C` resolves `C` (probe E-39); the
    chain is walked at validation, so a broken link is reported once.
 4. **An unknown target is rejected at validation**, `MissingProviderError` with
@@ -572,10 +577,12 @@ Rules:
 3. **A bare `Token` class-body field is rejected** with `UnresolvableParameterError` at registration
    and a message naming `Annotated[T, Inject(token)]` (D-30). The reference drops the field silently
    (probe E-72), leaving an instance without the attribute.
-4. **`Depends[T]` is accepted anywhere `T` is accepted**, including class bodies (probe E-63), because
-   it *is* `T` (D-25) — as a *runtime* expression. When `T` is a type the field is collected; when `T`
-   is a function the annotation is not a type at all, so PRD 02 §5.6's field gates skip it silently
-   and the typed spelling is `Annotated[T, Inject(fn)]` (PRD 01 §5.5).
+4. **`Depends[T]` is accepted anywhere `T` is accepted**, including class bodies, because it *is* `T`
+   (D-25) — as a *runtime* expression. When `T` is a type the field is collected (probe `E-63`); when
+   `T` is a function the annotation is not a type at all, so PRD 02 §5.6's field gates skip it silently
+   and the typed spelling is `Annotated[T, Inject(fn)]` (PRD 01 §5.5). The reference does *not* skip it:
+   probe `E-409` measures it collecting the function as the field's token and injecting the factory's
+   value, which is the divergence recorded as row 10 of §6.4 and PRD 08 §5.9's P-13.
 5. **`OptionalDep` has exactly one supported position**: an `injects` list. Elsewhere it is either
    ignored by the field gate or an unresolvable token (§5.2 rule 4).
 6. **A string token in an `injects` list needs no wrapper** (`injects=["LOGGER"]`); in an annotation
@@ -726,7 +733,7 @@ share a number in a way that matters because they are always spelled `probe E-nn
 | M-38 | An alias row owns no instance, no hook and no teardown entry | `instance_index` skip, `singletons()` | absent from `singletons()` | T04-38 |
 | M-39 | `Inject` overrides the annotation type with a different token | PRD 02 token rule 1 | `Annotated[Iface, Inject(Impl)]` resolves `Impl` | T04-39 |
 | M-40 | `Inject` works in constructor parameters and class-body fields, with class/string/`Token` keys | `_inspect_class_deps`, `_collect_field_deps` | body field resolves | T04-40 |
-| M-41 | `Depends[T]` resolves `T` as a token. In constructor and `injects` position a function token resolves to the factory's value; a class-body field with a non-type `T` is skipped by PRD 02 §5.6's gates 4/6 (the reference injects it — measured in `prds/evidence/43-function-token-field.md`) | marker stripping | `Depends[Repo]` → `Repo`; `Depends[fn]` → `Other` | T04-41 |
+| M-41 | `Depends[T]` resolves `T` as a token. In constructor and `injects` position a function token resolves to the factory's value; a class-body field with a non-type `T` is skipped by PRD 02 §5.6's gates 4/6 (the reference injects it — probe `E-409`, `prds/evidence/43-function-token-field.md`) | marker stripping | `Depends[Repo]` → `Repo`; `Depends[fn]` → `Other` | T04-41 |
 | M-42 | A bare `Token` annotation resolves in constructor position | token lookup | `db: DB` → value | T04-42 |
 | M-43 | Two non-multi providers bound to one token via `provides` fail validation | `compile` ambiguity scan | `ProtocolAmbiguityError {token, count}` | T04-43 |
 | M-44 | `multi=True` is accepted by every registration entry point | `injectable(provides, multi)`, `register_*`, `use_*` | all five forms collect | T04-44 |
@@ -773,16 +780,21 @@ Every case that raises, and the cases that deliberately do not.
 |---|-----------|-----------|-------------|-----|----------|
 | 1 | `Depends[T]` representation | `Annotated[T, Depends]` with an `ExtractionMarker` subclass | `Depends[T] is T`, no marker | there is no extractor layer to strip markers; the marker would be dead weight and a false dependency direction | D-25 |
 | 2 | Scalar resolve of a multi-bound token | returns a `list` when more than one binding | raises `ProtocolAmbiguityError` | a return type that depends on registration count cannot be annotated or tested; `list[T]` already spells "collection" | D-26 |
-| 3 | Alias scope | alias row is `SINGLETON`; consumer edges through it are not checked | alias has no scope; edges are checked against the terminal target; the row reports that scope | an alias must not be a way to smuggle a request dependency into a singleton (PRD 03's core rule) | D-27 |
+| 3 | Alias scope | alias row is `SINGLETON`; consumer edges through it are not checked | alias has no scope; edges are checked against the terminal target; the row reports that scope | an alias must not be a way to smuggle a request dependency into a singleton (PRD 03's core rule); P-14 in PRD 08 §5.9 | D-27 |
 | 4 | Self-alias | accepted at registration, fails at `compile()` as a cycle | rejected at registration | a one-token cycle is a typo; failing where it is written is cheaper than at validation | D-28 |
 | 5 | Ambiguity error detail | three shapes, one empty, one naming `"list"` | one shape: `token`, `element?`, `count`, `hint?` | the error must be actionable programmatically; parsing messages is not a contract | D-29 |
 | 6 | Bare `Token` class-body field | silently dropped; `AttributeError` at first use | `UnresolvableParameterError` at registration | a silently missing attribute is the worst failure mode; the message names the fix | D-30 |
 | 7 | Token name validation | `ValueError` | `ValueError` (unchanged) | a value object may be built before any container exists; `DIError` would imply a container operation | — |
 | 8 | `CustomProvider.kind` validation | `ValueError` | `ValueError` (unchanged) | same reason | — |
 | 9 | Logger/channel names in messages | `"lauren"` | `"lauren_di"` | one logger per distribution (PRD 03 §6.4 #9) | — |
+| 10 | A **function** token in a class-body field | collected and injected — the factory's value (`E-409`, `E-409b`) | skipped by the field gates, so the attribute is never set (PRD 02 §5.6 gates 4/6) | `Depends[fn] is fn` (D-25) and a function is not a type, so the field is not a dependency; the typed spelling of the same token is `Annotated[T, Inject(fn)]` (probe `E-55`) | D-25, D-54 |
 
 Everything else in §6.2 is parity: same token semantics, same lowering, same alias forwarding, same
-collection membership and order, same silent cases.
+collection membership and order, and the same silent skips for an unresolved string annotation (R-27)
+and for a primitive or non-`list` generic (R-28). The silent cases are **not** all the same, and M-41
+is the exception: a class-body field whose `Depends[T]` names a *function* is skipped here and
+injected by the reference (`E-409`). That is row 10 above, and it is registered in PRD 08 §5.9 as
+P-13 so the two documents cannot disagree about it.
 
 ### 6.5 Module layout and import graph
 
