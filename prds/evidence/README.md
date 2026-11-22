@@ -35,9 +35,10 @@ The transcripts are recorded on the project's primary interpreter (`PRIMARY_PYTH
 quote CPython rather than `lauren` — `E-306c` records asyncio's message and `E-53`
 records how a function annotation is rendered — and both differ on 3.13, so the
 session refuses to run on any other interpreter rather than reporting phantom drift.
-The recorded `lauren.__file__` line is compared with the reference root normalised
+The recorded `lauren.__file__` header line is compared with its value normalised
 (`<reference>`), because the absolute path is where the evidence was captured, not
-what it observed; the `_di/__init__.py` sha256 beside it is still compared verbatim.
+what it observed; every body line and the `_di/__init__.py` sha256 beside it are
+still compared verbatim.
 
 ## Reference pin
 

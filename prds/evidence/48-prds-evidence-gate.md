@@ -86,14 +86,29 @@ re-record, not a silent red build.
 Every transcript records `lauren.__file__`, e.g.
 `/root/python_projects/lauren-all/lauren-framework/lauren/__init__.py`. Comparing
 those bytes literally makes `--check` pass on exactly one machine — the one that
-recorded them — so the new CI job would have been red on its first run, in a way
-that says nothing about the evidence. `normalise_reference()` replaces the
-reference root with `<reference>` **on both sides of the comparison only**:
+recorded them — so the new CI job was red on its **first run**, on all 24
+transcripts, each differing only in that one line:
+
+```
+-# lauren.__file__: /root/python_projects/lauren-all/lauren-framework/lauren/__init__.py
++# lauren.__file__: <reference>/lauren/__init__.py
+```
+
+The first attempt replaced *this* machine's reference root, which only rewrote the
+freshly produced side: the recorded side names a root that does not exist on the
+runner. `normalise_reference()` therefore rewrites the **header field** on both
+sides instead:
 
 * nothing on disk is rewritten, so the transcripts stay byte-identical to what
   the PRDs cite;
-* the `_di/__init__.py` sha256 line beside it is still compared verbatim, so a
-  different reference build is still drift — which is what keeps the pin honest.
+* only the `# lauren.__file__:` line is touched — every body line, including any
+  other absolute path a probe prints, is still compared verbatim;
+* the `_di/__init__.py` sha256 on the line below is still compared verbatim, so a
+  different reference build is still drift, which is what keeps the pin honest.
+
+`tests/unit/test_evidence_transcripts.py` pins both halves: two recordings made
+under different roots compare equal, while a changed body line and a different
+sha256 both still fail.
 
 ## Verification
 

@@ -58,6 +58,9 @@ RESERVED_HEADING = "**Reserved ids.**"
 #: What the reference root is replaced with before two transcripts are compared;
 #: see :func:`normalise_reference`.
 REFERENCE_PLACEHOLDER = "<reference>"
+#: The one header field that names *where* the evidence was captured. Every other
+#: byte of a transcript is an observation.
+ORIGIN_LINE = re.compile(r"^# lauren\.__file__:.*$", re.MULTILINE)
 
 
 def sha256(path: Path) -> str:
@@ -106,26 +109,30 @@ def probes() -> list[Path]:
     return sorted(p for p in EVIDENCE.glob("prd*/**/*.py") if p.name != "__init__.py")
 
 
-def normalise_reference(text: str, reference: Path | None = None) -> str:
-    """Replace the machine-specific reference root with a stable placeholder.
+def normalise_reference(text: str) -> str:
+    """Blank out the recorded ``lauren.__file__`` before two transcripts are compared.
 
-    Every transcript records ``lauren.__file__``, which is an *absolute* path, so
-    the recorded files carry the root the evidence was captured under.  Comparing
+    Every transcript records ``lauren.__file__``, an *absolute* path, so the
+    recorded files carry the root the evidence was captured under.  Comparing
     those bytes literally makes ``--check`` pass on exactly one machine — the one
-    that recorded them — which would have left ``nox -s prds_evidence`` red in CI
-    forever, where the reference is cloned somewhere else entirely.  The
-    observation is the transcript body plus the ``_di/__init__.py`` sha256 beside
-    it (which still pins the artifact); the root is only *where it happened to
-    live*, and two machines that agree on the body and on the sha are looking at
-    the same build.
+    that recorded them — so ``nox -s prds_evidence`` would be red in CI, where the
+    checkout is cloned to ``/home/runner/work/lauren-di/lauren-framework``.
 
-    Only the comparison is normalised.  Nothing on disk is rewritten, so the
-    recorded transcripts stay byte-identical to what the PRDs cite, and the drift
-    this gate exists to catch — a probe that changed, a transcript edited by
-    hand, a different reference commit — is still caught.
+    Rewriting the *header field* (rather than substituting this machine's root)
+    is what makes the comparison machine-independent: substituting only rewrote
+    the freshly produced side, because the recorded side names a root that does
+    not exist here, so CI reported drift on the header of all 24 transcripts and
+    nothing else — measured.  The observation is the transcript body plus the
+    ``_di/__init__.py`` sha256 on the line below, and that line is still compared
+    verbatim: two machines that agree on the body and the sha are looking at the
+    same build.
+
+    Nothing on disk is rewritten, so the recorded transcripts stay byte-identical
+    to what the PRDs cite, and the drift this gate exists to catch — a probe that
+    changed, a transcript edited by hand, a different reference commit — is still
+    caught.
     """
-    root = str((reference or REFERENCE).resolve())
-    return text.replace(root, REFERENCE_PLACEHOLDER)
+    return ORIGIN_LINE.sub(f"# lauren.__file__: {REFERENCE_PLACEHOLDER}", text)
 
 
 def run_probe(script: Path, env: dict[str, str]) -> tuple[int, str]:
