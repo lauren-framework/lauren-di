@@ -28,12 +28,17 @@ this test passing by scanning nothing:
 * the corpus must still contain the spelling **evaluated**, in PRD 01 §5.4, because that is the
   form §5.5 tells a reader to use.
 
-**One exemption, and it travels with the code.** A test that pins the field gate's own input
-has to hand the gate an annotation, so ``tests/unit/test_resolution.py`` annotates a field with
-the spelling on purpose. Such a line carries the marker ``# field-gate fixture``; the scanner
-honours it on that line only, and ``test_the_marker_exempts_one_line_and_is_still_in_use``
-asserts both that it works and that every use is a real one. A path allow-list would have
-exempted the whole file and could widen unnoticed; a marker cannot.
+**One exemption, bounded at both ends.** A test that pins the field gate's own input has to hand
+the gate an annotation, so ``tests/unit/test_resolution.py`` annotates a field with the spelling
+on purpose. Such a line carries the marker ``# field-gate fixture``, and the scanner honours it
+only when *both* hold: the comment sits on the offending line, and the file is one of
+:data:`MARKER_FILES` — a short, test-only list. Either half alone is too weak. The marker alone
+exempts the same line in ``lauren_di/_custom.py`` or in an example a reader copies, which is the
+shape §5.5 forbids everywhere and the case this guard exists to catch (measured: a marked
+``x: Depends[Repo]`` appended to ``lauren_di/_custom.py`` passed the whole module). The file list
+alone exempts a whole file, which is what #44 rejected. Together they are precise (one line) and
+bounded (one fixture), and ``test_the_marker_exempts_one_line_and_is_still_in_use`` asserts the
+mechanism, the confinement, and that every listed file still carries a marker it needs.
 
 ``prds/evidence/**`` is deliberately outside both halves: those are throwaway probe scripts,
 cited by id rather than imported, and ``prds/evidence/run_all.py --check`` audits them.
@@ -68,8 +73,27 @@ CONTRACT_FILES = ("README.md", "examples/README.md", "llms.txt", "llms-full.txt"
 #: is not one of them; see the module docstring.
 SOURCE_ROOTS = ("lauren_di", "tests", "examples", "scripts")
 
-#: The comment that exempts exactly the annotation line it sits on (see the module docstring).
+#: The comment that exempts exactly the annotation line it sits on, in a listed file only (see
+#: the module docstring).
 FIXTURE_MARKER = "field-gate fixture"
+
+#: The only files whose ``FIXTURE_MARKER`` the scanner honours. The exemption exists for a test
+#: that hands the field gate its own input, so the list is confined to ``tests/`` and named
+#: file-by-file: a further site is a reviewed edit here, not a comment the scanner happens to
+#: trust, which is what stops the exemption widening unnoticed.
+MARKER_FILES = ("tests/unit/test_resolution.py",)
+
+#: Every entry in :data:`MARKER_FILES` must live under this root: shipped code (``lauren_di/``)
+#: and the examples a reader copies are never exempt.
+MARKER_ROOT = "tests"
+
+#: One file per tree that must *not* be able to honour the marker, so the confinement is proven
+#: against the shipped package, a published example and a build script rather than asserted.
+UNMARKABLE = (
+    "lauren_di/_custom.py",
+    "examples/01_minimal_singleton.py",
+    "scripts/build_reference.py",
+)
 
 #: Files that must be part of the markdown corpus: the PRD that states the rule, the PRD whose
 #: field gates act on it, and the published guide that shows a function provider in a field. If
@@ -288,8 +312,15 @@ def _docstring_blocks(tree: ast.AST) -> list[tuple[int, str]]:
     return blocks
 
 
-def _marked(lines: list[str], line: int) -> bool:
-    """Whether the marker comment sits on ``line`` (1-based)."""
+def _marked(lines: list[str], line: int, label: str) -> bool:
+    """Whether ``label``'s ``line`` (1-based) carries a marker this guard honours.
+
+    Two conditions, because the exemption must be both precise and bounded: the comment has to
+    sit on the offending line, so it exempts nothing else, and the file has to be one of
+    :data:`MARKER_FILES`, so shipped code and published examples cannot be exempted at all.
+    """
+    if label not in MARKER_FILES:
+        return False
     return 0 < line <= len(lines) and FIXTURE_MARKER in lines[line - 1]
 
 
@@ -298,14 +329,15 @@ def violations(source: str, *, label: str = "<source>") -> list[Finding]:
 
     ``source`` is a whole module, so the scan covers its real code *and* the python examples its
     docstrings show. A literal block that does not compile is prose or a shell transcript, not
-    python, so it contributes nothing.
+    python, so it contributes nothing. ``label`` decides both where a finding is reported and
+    whether the fixture marker is honoured at all (see :func:`_marked`).
     """
     lines = source.splitlines()
     tree = _parse(source, label)
     found = [
         Finding(label, spelling.line, spelling.text)
         for spelling in _spellings(tree)
-        if spelling.in_annotation and not _marked(lines, spelling.line)
+        if spelling.in_annotation and not _marked(lines, spelling.line, label)
     ]
     for first, block in _docstring_blocks(tree):
         try:
@@ -315,7 +347,7 @@ def violations(source: str, *, label: str = "<source>") -> list[Finding]:
         found.extend(
             Finding(label, first + spelling.line - 1, spelling.text)
             for spelling in _spellings(inner)
-            if spelling.in_annotation and not _marked(lines, first + spelling.line - 1)
+            if spelling.in_annotation and not _marked(lines, first + spelling.line - 1, label)
         )
     return sorted(found, key=lambda finding: finding.line)
 
@@ -428,10 +460,24 @@ def test_the_source_scan_reports_what_it_read() -> None:
 
 def test_the_marker_exempts_one_line_and_is_still_in_use() -> None:
     """The one exemption works in both directions, and cannot rot or quietly widen."""
+    fixture = MARKER_FILES[0]
     assert violations(UNMARKED_MODULE) == [Finding("<source>", 3, "Depends[Repo]")], (
         "an unmarked annotation must be reported"
     )
-    assert violations(MARKED_MODULE) == [], "the marker must exempt the line it sits on"
+    assert violations(MARKED_MODULE, label=fixture) == [], (
+        "the marker must exempt the line it sits on, in a listed file"
+    )
+
+    # The confinement, in both directions: the same marked line is still a violation when the
+    # file is not listed, so the exemption cannot travel into shipped code or an example a
+    # reader copies. This is the hole a line-only marker left open (measured: a marked
+    # `x: Depends[Repo]` appended to `lauren_di/_custom.py` passed every test in this module).
+    for shipped in UNMARKABLE:
+        expected = [Finding(shipped, 3, "Depends[Repo]")]
+        assert violations(MARKED_MODULE, label=shipped) == expected, (
+            f"a marker in {shipped} must not exempt anything: shipped code and published "
+            "examples are never exempt (§5.5)"
+        )
 
     # The docstring half of the scan, in both directions: this is the shape that survived the
     # markdown-only guard, so the falsifier has to cover it rather than trust it.
@@ -441,7 +487,27 @@ def test_the_marker_exempts_one_line_and_is_still_in_use() -> None:
     marked_docstring = DOCSTRING_MODULE.replace(
         "        repo: Depends[Repo]", f"        repo: Depends[Repo]  # {FIXTURE_MARKER}"
     )
-    assert violations(marked_docstring) == [], "the marker must exempt a docstring line too"
+    assert violations(marked_docstring, label=fixture) == [], (
+        "the marker must exempt a docstring line too"
+    )
+
+    # The list itself is falsifiable: it cannot be emptied, it cannot drift out of `tests/`, and
+    # every entry must still be a file that carries a marker it actually needs.
+    assert MARKER_FILES, (
+        "MARKER_FILES is empty, so either the field-gate fixtures were rewritten (delete the "
+        "exemption and this test) or the guard now exempts nothing"
+    )
+    for name in MARKER_FILES:
+        assert name.startswith(f"{MARKER_ROOT}/"), (
+            f"{name!r} is in MARKER_FILES but not under {MARKER_ROOT}/; the exemption exists "
+            "for a test that hands the field gate its own input, never for shipped code"
+        )
+        listed = ROOT / name
+        assert listed.is_file(), f"MARKER_FILES names {name!r}, which does not exist"
+        assert marker_comments(listed), (
+            f"MARKER_FILES lists {name!r}, but it carries no `# {FIXTURE_MARKER}` marker; drop "
+            "the entry rather than leaving the exemption listed but dead"
+        )
 
     # Every live use of the marker must sit on a line the scanner would otherwise report, so
     # the exemption cannot be sprayed onto clean lines, and it cannot go dead either.
@@ -449,6 +515,16 @@ def test_the_marker_exempts_one_line_and_is_still_in_use() -> None:
     assert exempt, (
         f"no live `# {FIXTURE_MARKER}` marker remains, so the exemption is dead code and the "
         "fixtures that need it have been rewritten"
+    )
+    outside = [
+        f"{path.relative_to(ROOT).as_posix()}:{number}"
+        for path, number in exempt
+        if path.relative_to(ROOT).as_posix() not in MARKER_FILES
+    ]
+    assert outside == [], (
+        f"`# {FIXTURE_MARKER}` appears in a file that MARKER_FILES does not list: {outside}. "
+        "The marker is honoured only in the listed files, so this one exempts nothing — delete "
+        "it, or add the file to MARKER_FILES in a reviewed change"
     )
     reported_without_it: dict[str, set[int]] = {}
     for path in source_files():
