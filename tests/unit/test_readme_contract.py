@@ -11,6 +11,10 @@ guards is not a typo, it is a **false claim**:
   nobody measures);
 * a badge naming a workflow that does not exist here, or a PyPI project other
   than the one `pyproject.toml` builds;
+* a hero image that is not the shared `lauren-assets` logo, that has drifted
+  below the title, or that points at an asset folder the assets repository does
+  not have (the top-level folders there are `ai/`, `framework/`,
+  `lauren-examples/` and `mcp/`);
 * a link to a page that is not in the tree, or to a site address that no longer
   serves the docs (the site is built by `.github/workflows/docs.yml` and
   deployed to GitHub Pages, so `mkdocs.yml`'s `site_url` is the address that
@@ -98,7 +102,13 @@ _MD_LINK_RE = re.compile(r"\[(?P<text>[^\]]*)\]\((?P<target>[^)\s]+)\)")
 _AUTOLINK_RE = re.compile(r"<(?P<target>https?://[^>\s]+)>")
 _HREF_RE = re.compile(r'href="(?P<target>[^"]+)"')
 _IMG_RE = re.compile(r'<img src="(?P<src>[^"]+)" alt="(?P<alt>[^"]+)">')
-_BADGE_PARAGRAPH_RE = re.compile(r'<p align="center">\s*(?P<body>(?:.*?<img.*?)</p>)', re.S)
+#: Any `<img src=...>`, with or without `alt=` (the hero logo has none, matching
+#: the framework's markup).
+_IMG_SRC_RE = re.compile(r'<img src="(?P<src>[^"]+)"')
+#: One centred paragraph, body only. Collected as a list rather than searched
+#: from the top of the file: the hero opens with the logo paragraph, so "the
+#: first centred `<p>`" is no longer the badge row.
+_CENTRED_P_RE = re.compile(r'<p align="center">(?P<body>.*?)</p>', re.S)
 _WORKFLOW_BADGE_RE = re.compile(
     r"^https://github\.com/(?P<repo>[\w.-]+/[\w.-]+)/actions/workflows/(?P<workflow>[\w.-]+)/badge\.svg"
 )
@@ -111,10 +121,22 @@ def _read() -> str:
     return README.read_text(encoding="utf-8")
 
 
+def _centred_paragraphs() -> list[str]:
+    """Every centred paragraph's body, in document order."""
+    return [match.group("body") for match in _CENTRED_P_RE.finditer(_read())]
+
+
+def _non_empty_lines() -> list[str]:
+    """The README's lines with blank lines dropped, for layout assertions."""
+    return [line for line in _read().splitlines() if line.strip()]
+
+
 def _badge_paragraph() -> str:
-    match = _BADGE_PARAGRAPH_RE.search(_read())
-    assert match is not None, "the README has no centred `<p>` carrying the badges"
-    return match.group("body")
+    """The centred paragraph that carries the badge anchors."""
+    for body in _centred_paragraphs():
+        if "<a href=" in body:
+            return body
+    raise AssertionError("the README has no centred `<p>` carrying the badges")
 
 
 def _badges() -> list[tuple[str, str, str]]:
@@ -147,24 +169,71 @@ def _is_relative(target: str) -> bool:
 # ---------------------------------------------------------------------------
 
 
-def test_the_readme_opens_with_a_centred_title_block() -> None:
-    """`<div align="center"><h1><i>lauren-di</i></h1></div>`, then a tagline.
+#: The shared logo, hosted in `lauren-framework/lauren-assets` and used verbatim
+#: by `../lauren-framework/README.md`. There is no `di/` folder in that
+#: repository, so a `lauren-di`-specific path would render a broken image.
+LOGO_URL = (
+    "https://raw.githubusercontent.com/lauren-framework/lauren-assets"
+    "/refs/heads/main/framework/lauren-logo-only.png"
+)
 
-    The centred block is the first thing GitHub renders above the fold, so a
+
+def test_the_readme_opens_with_the_logo_above_a_centred_title_block() -> None:
+    """The shared logo, then `<div align="center"><h1><i>lauren-di</i></h1></div>`.
+
+    The centred title is the first *text* GitHub renders above the fold, so a
     Markdown `# lauren-di` heading (which would render left-aligned and *also*
-    start the document) is the regression this catches.
+    start the document) is the regression this catches. The logo is asserted to
+    sit above the title rather than merely somewhere in the file, because
+    "above the fold" is the only reason it is there.
     """
-    lines = [line for line in _read().splitlines() if line.strip()]
-    assert lines[:3] == ['<div align="center">', "  <h1><i>lauren-di</i></h1>", "</div>"], (
-        f"the README does not open with the centred title block; it opens with {lines[:3]}"
+    lines = _non_empty_lines()
+    titles = [line for line in lines if "<h1>" in line]
+    assert titles == ["  <h1><i>lauren-di</i></h1>"], (
+        f"expected exactly one centred `<h1>` naming the project; found {titles}"
     )
-    assert lines[3] == '<p align="center">', "the tagline paragraph is not centred"
+    title_at = lines.index(titles[0])
+    assert lines[title_at - 1 : title_at + 2] == [
+        '<div align="center">',
+        "  <h1><i>lauren-di</i></h1>",
+        "</div>",
+    ], f"the title block is not centred: {lines[title_at - 1 : title_at + 2]}"
+    assert lines[title_at + 2] == '<p align="center">', "the tagline paragraph is not centred"
+    assert not any(line.startswith("#") for line in lines[:title_at]), (
+        f"a Markdown heading precedes the centred title: {lines[:title_at]}"
+    )
+    logo_at = next((at for at, line in enumerate(lines) if LOGO_URL in line), None)
+    assert logo_at is not None, "the README carries no lauren logo"
+    assert logo_at < title_at, "the logo is not above the title"
+    assert (lines[logo_at - 1], lines[logo_at + 1]) == ('<p align="center">', "</p>"), (
+        "the logo is not alone inside its own centred `<p>`"
+    )
+
+
+def test_the_logo_is_the_shared_lauren_assets_image() -> None:
+    """One image, the shared `lauren-assets` logo, sized like the framework's.
+
+    Copying the framework's hero means copying *its* asset: there is no `di/`
+    folder in `lauren-assets` (the top-level folders are `ai/`, `framework/`,
+    `lauren-examples/` and `mcp/`), so inventing one would ship a 404. When a
+    `lauren-di` variant is published, this test is the line that changes, and
+    the change is then a deliberate one rather than a silent URL edit.
+    """
+    sources = _IMG_SRC_RE.findall(_read())
+    logos = [src for src in sources if "lauren-logo-only" in src]
+    assert logos == [LOGO_URL], f"expected exactly one shared logo, found {logos}"
+    assert LOGO_URL in _read(), "the README does not reference the shared logo"
+    assert "lauren-assets/refs/heads/main/di/" not in _read(), (
+        "the README points at a `di/` folder that `lauren-assets` does not have"
+    )
+    logo_line = next(line for line in _read().splitlines() if LOGO_URL in line)
+    assert "width=40%" in logo_line, f"the logo is not sized like the framework's: {logo_line!r}"
 
 
 def test_the_tagline_is_one_sentence_in_emphasis() -> None:
-    """A one-sentence `<em>` tagline, as the framework's README has."""
-    lines = [line for line in _read().splitlines() if line.strip()]
-    tagline = lines[4].strip()
+    """A one-sentence `<em>` tagline directly under the title, as the framework's has."""
+    lines = _non_empty_lines()
+    tagline = lines[lines.index("</div>") + 2].strip()
     assert tagline.startswith("<em>") and tagline.endswith("</em>"), (
         f"the tagline is not a single `<em>` element: {tagline!r}"
     )

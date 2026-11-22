@@ -203,3 +203,116 @@ full 512 (460 + 52 parity), and 460 − 435 = 25 = the size of
 because `tomllib` is stdlib only from 3.11. `prds/evidence/31-documented-test-count.md`
 keeps the 451/426 figures it recorded at the time, since it is a dated record of
 that goal; this note is the pointer that they have since moved.
+
+## Goal 35: the shared lauren logo above the title
+
+The framework's README opens with the shared logo, and this one did not. The
+hero is now the same shape, using the same asset:
+
+```text
+https://raw.githubusercontent.com/lauren-framework/lauren-assets/refs/heads/main/framework/lauren-logo-only.png
+```
+
+### The URL, measured rather than assumed
+
+```text
+$ curl -s -o /dev/null -w "%{http_code} %{size_download} bytes %{content_type}\n" -L <url>
+200 646404 bytes image/png
+```
+
+`lauren-assets` has no `di/` folder (top level: `ai/`, `framework/`,
+`lauren-examples/`, `mcp/`), so the framework's own `framework/` path is the
+correct one to share. Inventing `.../main/di/lauren-logo-only.png` would have
+rendered a broken image on the repository's front page, which is the worst place
+to discover it. When a `lauren-di` variant is published, the swap is one line,
+and `test_the_logo_is_the_shared_lauren_assets_image` is where the decision is
+recorded.
+
+### README head, before and after
+
+Before (first four non-empty lines):
+
+```text
+<div align="center">
+  <h1><i>lauren-di</i></h1>
+</div>
+<p align="center">
+```
+
+After:
+
+```text
+<p align="center">
+  <img src="https://raw.githubusercontent.com/lauren-framework/lauren-assets/refs/heads/main/framework/lauren-logo-only.png" width=40%></img>
+</p>
+<div align="center">
+  <h1><i>lauren-di</i></h1>
+</div>
+<p align="center">
+```
+
+The three-line logo paragraph is byte-identical in shape to the framework's
+(same indentation, same `width=40%></img>`, no `alt`), so the two front pages
+stay visually identical rather than drifting into two designs. Everything below
+the tagline is untouched: the badge row, the tagline itself, the
+`## For AI Agents & Coding Assistants` table, and the quickstart block that
+`tests/integration/test_quickstart.py` compares byte for byte.
+
+### The docs contract ignores the image, proven three ways
+
+The relative-link rule in `scripts/check_docs_contract.py` must not treat an
+absolute image URL as a broken relative link. That is shown rather than assumed:
+
+1. **The count did not move.** The contract reported `50 relative link(s)`
+   before the logo and reports `50` after it. `README.md` alone contributes 15
+   of them, and none of the 15 is the logo.
+2. **The grammar cannot see it.** `relative_links_in("README.md")` matches
+   inline markdown links only (`[text](target)`), so an HTML `src=` attribute is
+   not a candidate at all; and its target filter (`LINK_SCHEMES = ('http://',
+   'https://', 'mailto:')`) would skip the URL even as a markdown link. Both
+   confirmed in-process, printing `logo treated as a link: False`.
+3. **Two controls, one live and one skipped.** Appending `[gone](does-not-exist.md)`
+   to the README makes the contract exit 1 with
+   `README.md:164: [link] relative link does not resolve: does-not-exist.md`,
+   while appending `[gone](https://example.invalid/nope.png)` and appending the
+   logo URL as a markdown link both leave it green at 50 links. So the rule is
+   live on this file, and absolute targets are skipped by rule rather than by
+   luck.
+
+One honest limitation, stated so it is not mistaken for coverage: because the
+logo is an HTML `<img>`, the contract does not resolve its `src` on disk or over
+the network. Its liveness is asserted by the test named above (exact URL, one
+occurrence, `width=40%`) and by the `curl` status recorded here, not by the
+docs contract.
+
+### The guards had to move, not weaken
+
+Adding a paragraph above the title broke **seven** existing tests in
+`tests/unit/test_readme_contract.py` on the first run, and every one of them was
+a locator, not a guarantee:
+
+* `test_the_readme_opens_with_a_centred_title_block` and
+  `test_the_tagline_is_one_sentence_in_emphasis` asserted fixed line indices
+  (`lines[:3]`, `lines[4]`), which the new first paragraph shifts by three.
+* Five badge tests failed for a subtler reason: `_badge_paragraph()` matched the
+  *first* `<p align="center">` in the file, which is now the logo paragraph, so
+  the badge row became invisible to them.
+
+The fix keeps every claim and removes the brittleness: `_badge_paragraph()` now
+scans the centred paragraphs and selects the one that actually carries an
+`<a href=`, the title test locates the `<h1>` structurally and then asserts the
+logo sits above it inside its own centred paragraph, and the tagline test finds
+the line after `</div>`. A new `test_the_logo_is_the_shared_lauren_assets_image`
+pins the asset. The module went from 25 to 26 tests, and five drills were run
+against the new guards, each of which fails as intended and reverts cleanly:
+
+| Drill | Result |
+|---|---|
+| logo moved below the title | fails: `the logo is not above the title` |
+| logo URL switched to `.../main/di/...` | fails: `expected exactly one shared logo, found [.../di/...]` |
+| a Markdown `# lauren-di` before the title | fails: `a Markdown heading precedes the centred title` |
+| title block loses its `<div align="center">` | fails: `the title block is not centred` |
+| a second copy of the logo | fails: `expected exactly one shared logo` |
+
+`git diff --stat README.md` after the drills is `3 +++`: the logo paragraph and
+nothing else.
