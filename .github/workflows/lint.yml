@@ -71,3 +71,21 @@ jobs:
       # Nav integrity, every python block compiles, `run` blocks execute, and
       # every name in lauren_di.__all__ has a section in docs/reference.md.
       - run: nox -s docs_contract
+
+  prds:
+    name: PRD corpus consistency
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.14"
+      - run: python -m pip install "nox>=2024.4.15"
+      # `prds/check_consistency.py` cross-checks the corpus: README<->disk index
+      # parity, the ten-section template, every relative link, every
+      # `PRD 0N §x` cross-reference, the decision register, symbol/default/scope
+      # agreement, the no-web-framework rule, and the `owners` check that keeps
+      # `prds/evidence/01-conformance-baseline.md` pointing at the goal that
+      # actually closed each divergence. Nothing ran it before goal #36, which is
+      # exactly how a silent off-by-one survived in that table.
+      - run: nox -s prds

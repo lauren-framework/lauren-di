@@ -9,6 +9,10 @@ closed each divergence. Run it from anywhere::
 
     python3 prds/check_consistency.py
 
+``nox -s prds`` is the gate: it is part of ``nox -s ci`` and of the ``prds`` job
+in ``.github/workflows/lint.yml``, so these checks run on every push instead of
+only when a human remembers the command.
+
 Exit code 0 means every check passed; 1 means at least one failed and the
 failures are printed with the file and the offending value.
 """
@@ -82,7 +86,11 @@ def check_template() -> None:
         got = h2(p)
         if len(got) != 10:
             fail("template", f"{p.name}: {len(got)} H2 sections, expected 10")
-        for want, got_line in zip(TEMPLATE, got):
+        # ``strict=False`` is deliberate: a section count that is not 10 has
+        # already been reported above, and raising here would replace eight
+        # readable failures with one traceback. The count is the gate; this
+        # loop only names which section drifted.
+        for want, got_line in zip(TEMPLATE, got, strict=False):
             if want.lower() not in got_line.lower():
                 fail("template", f"{p.name}: expected a '{want}' section, got {got_line!r}")
     notes.append(f"template: {len(PRDS)} PRDs × 10 sections checked")
@@ -146,18 +154,25 @@ def check_symbols() -> None:
             fail("symbols", msg)
 
     # D-20: shutdown returns the teardown aggregate, not None.
-    need("async shutdown() -> tuple[DestructError, ...]" in p1,
-         "PRD 01 does not declare `shutdown() -> tuple[DestructError, ...]` (D-20)")
+    need(
+        "async shutdown() -> tuple[DestructError, ...]" in p1,
+        "PRD 01 does not declare `shutdown() -> tuple[DestructError, ...]` (D-20)",
+    )
 
     # D-25: Depends is a spelling alias, never an Annotated marker.
     need("`Depends[T] is T`" in p1, "PRD 01 lacks `Depends[T] is T` (D-25)")
-    need("Depends[T] -> Annotated[T, Depends]" not in p1,
-         "PRD 01 still describes Depends as an Annotated marker (D-25)")
+    need(
+        "Depends[T] -> Annotated[T, Depends]" not in p1,
+        "PRD 01 still describes Depends as an Annotated marker (D-25)",
+    )
 
     # D-53/D-56: the public container surface.
     method_rows = set(re.findall(r"^\| `([a-z_]+)` \|", p1, re.M))
     for gone in ("set_singleton", "mark_singleton_initialized", "singletons"):
-        need(gone not in method_rows, f"PRD 01 still lists `{gone}` as a public container method (D-56)")
+        need(
+            gone not in method_rows,
+            f"PRD 01 still lists `{gone}` as a public container method (D-56)",
+        )
     need("adopt_lifecycle" in method_rows, "PRD 01 no longer lists `adopt_lifecycle` (D-56)")
     need("instance_index" in method_rows, "PRD 01 no longer lists `instance_index` (D-56)")
 
@@ -165,42 +180,66 @@ def check_symbols() -> None:
     # the reference's behaviour are legitimate, so scope the check to our test rows and our
     # §5.9 public-member table.
     t03_rows = [ln for ln in p3.splitlines() if ln.startswith("| T03-")]
-    need(not any("singletons()" in ln for ln in t03_rows),
-         "PRD 03 still asserts through `singletons()` in a T03 test row (D-56)")
+    need(
+        not any("singletons()" in ln for ln in t03_rows),
+        "PRD 03 still asserts through `singletons()` in a T03 test row (D-56)",
+    )
     # The public-member table lives in §5.9; other tables map *reference* symbols to internal files.
     sec = p3.split("### 5.9", 1)[1]
     sec = re.split(r"\n### ", sec, maxsplit=1)[0]
-    need(not any(ln.startswith("| `singletons`") for ln in sec.splitlines()),
-         "PRD 03 §5.9 still lists `singletons` as a public member (D-56)")
-    need(not any(ln.startswith("| `set_singleton`") for ln in sec.splitlines()),
-         "PRD 03 §5.9 still lists `set_singleton` as a public member (D-56)")
-    need(not any(ln.startswith("| `mark_singleton_initialized`") for ln in sec.splitlines()),
-         "PRD 03 §5.9 still lists `mark_singleton_initialized` as a public member (D-56)")
+    need(
+        not any(ln.startswith("| `singletons`") for ln in sec.splitlines()),
+        "PRD 03 §5.9 still lists `singletons` as a public member (D-56)",
+    )
+    need(
+        not any(ln.startswith("| `set_singleton`") for ln in sec.splitlines()),
+        "PRD 03 §5.9 still lists `set_singleton` as a public member (D-56)",
+    )
+    need(
+        not any(ln.startswith("| `mark_singleton_initialized`") for ln in sec.splitlines()),
+        "PRD 03 §5.9 still lists `mark_singleton_initialized` as a public member (D-56)",
+    )
 
     # resolve keeps the full keyword set everywhere it is specified.
-    need("request_cache: dict[Any, Any] | None = None" in p1 and "owning_module: type | None = None" in p1,
-         "PRD 01 resolve signature/overloads dropped a keyword")
+    need(
+        "request_cache: dict[Any, Any] | None = None" in p1
+        and "owning_module: type | None = None" in p1,
+        "PRD 01 resolve signature/overloads dropped a keyword",
+    )
 
     # The five override kinds and their inheritance rule.
-    need('"value" | "values" | "class" | "factory" | "existing"' in p7,
-         "PRD 07 no longer enumerates the five override kinds")
+    need(
+        '"value" | "values" | "class" | "factory" | "existing"' in p7,
+        "PRD 07 no longer enumerates the five override kinds",
+    )
     for scope in ("SINGLETON", "REQUEST", "TRANSIENT"):
-        need(f"| `{scope}` | `{scope}` |" in p7, f"PRD 07 scope-inheritance row for {scope} missing")
+        need(
+            f"| `{scope}` | `{scope}` |" in p7, f"PRD 07 scope-inheritance row for {scope} missing"
+        )
 
     # Scope values are load-bearing (D-1 / PRD 03 L-01).
     for doc, name in ((p1, "01"), (p3, "03")):
-        need("TRANSIENT = 0" in doc and "REQUEST = 1" in doc and "SINGLETON = 2" in doc,
-             f"PRD {name} does not state Scope as 0/1/2")
+        need(
+            "TRANSIENT = 0" in doc and "REQUEST = 1" in doc and "SINGLETON = 2" in doc,
+            f"PRD {name} does not state Scope as 0/1/2",
+        )
 
     # Provider field count is the same claim in both PRDs.
-    need("`Provider` (line 187) carries **18 fields**" in (ROOT / "02-core-container-and-provider-registration.md").read_text(),
-         "PRD 02 no longer states the 18-field Provider record")
-    need("reference's 18 fields are the library's 18 fields" in p8,
-         "PRD 08 no longer agrees on the 18-field Provider record")
+    need(
+        "`Provider` (line 187) carries **18 fields**"
+        in (ROOT / "02-core-container-and-provider-registration.md").read_text(),
+        "PRD 02 no longer states the 18-field Provider record",
+    )
+    need(
+        "reference's 18 fields are the library's 18 fields" in p8,
+        "PRD 08 no longer agrees on the 18-field Provider record",
+    )
 
     # The removed-mutator claim is symmetric between the migration PRD and the decision.
-    need("`adopt_lifecycle(instance)` | **kept**" in p8,
-         "PRD 08 §5.3.2 does not keep adopt_lifecycle (D-56)")
+    need(
+        "`adopt_lifecycle(instance)` | **kept**" in p8,
+        "PRD 08 §5.3.2 does not keep adopt_lifecycle (D-56)",
+    )
 
     # A container-level close() does not exist anywhere (PRD 03 defines shutdown()).
     for p in PRDS:
@@ -232,8 +271,14 @@ def check_scope() -> None:
             if ln.strip().startswith("```"):
                 if inside:
                     body = "\n".join(fence)
-                    if re.search(r"^\s*(?:from|import)\s+lauren\b", body, re.M) and "LAUREN_DI_PARITY_TARGET" not in body:
-                        fail("scope", f"{name}: a code sample imports `lauren` without the parity-shim guard")
+                    if (
+                        re.search(r"^\s*(?:from|import)\s+lauren\b", body, re.M)
+                        and "LAUREN_DI_PARITY_TARGET" not in body
+                    ):
+                        fail(
+                            "scope",
+                            f"{name}: a code sample imports `lauren` without the parity-shim guard",
+                        )
                     fence = []
                 inside = not inside
                 continue

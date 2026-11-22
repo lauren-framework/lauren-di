@@ -49,6 +49,12 @@ SITE_DIR = ROOT / "site"
 DIST_DIR = ROOT / "dist"
 BUILD_DIR = ROOT / "build"
 DOCS_REQUIREMENTS = ROOT / "docs-requirements.txt"
+#: The PRD corpus and the consistency checker that cross-checks it. Nothing ran
+#: the checker before goal #36 — no session, no job, no test — which is how a
+#: silent off-by-one survived in ``prds/evidence/01-conformance-baseline.md``.
+#: ``nox -s prds`` is now the gate, and it is part of ``nox -s ci``.
+PRDS_DIR = ROOT / "prds"
+PRDS_CHECK = PRDS_DIR / "check_consistency.py"
 
 #: The interpreters the library supports (``requires-python = ">=3.10"``).
 #: ``.github/workflows/tests.yml`` must list exactly these in its matrix and
@@ -79,6 +85,18 @@ RUFF_VERSION = "0.15.22"
 MYPY_VERSION = "1.20.2"
 #: pyright ships as a Node package; `nox -s typing` runs it through `npx`.
 PYRIGHT_VERSION = "1.1.390"
+
+#: What ``lint`` and ``format`` check. One tuple, so the two sessions cannot
+#: disagree about the corpus they cover.
+#:
+#: ``prds`` is listed as a *directory* so a new Python file in the PRD corpus is
+#: checked without editing this file, and ``[tool.ruff] extend-exclude`` in
+#: ``pyproject.toml`` drops ``prds/evidence/`` — the probe scripts behind the
+#: ``E-nnn`` citations are cited evidence and must not be reformatted. The
+#: exclusion is one directory wide, not ``prds`` wide: the checker itself is
+#: linted and formatted like any other code (``tests/unit/test_noxfile_contract``
+#: asserts both halves).
+RUFF_TARGETS = ("lauren_di", "tests", "scripts", "examples", "prds", "noxfile.py")
 
 nox.options.sessions = ["lint", "unit", "integration", "typecheck"]
 nox.options.reuse_existing_virtualenvs = True
@@ -198,14 +216,12 @@ def coverage(session: nox.Session) -> None:
 # ---------------------------------------------------------------------------
 @nox.session(python=PRIMARY_PYTHON, reuse_venv=True)
 def lint(session: nox.Session) -> None:
-    """Check code, tests, scripts and examples with ruff (no writes).
+    """Check code, tests, scripts, examples and the PRD checker with ruff (no writes).
 
     ``nox -s lint -- --fix`` opts into auto-fixes.
     """
     session.install(f"ruff=={RUFF_VERSION}")
-    session.run(
-        "ruff", "check", *session.posargs, "lauren_di", "tests", "scripts", "examples", "noxfile.py"
-    )
+    session.run("ruff", "check", *session.posargs, *RUFF_TARGETS)
 
 
 @nox.session(python=PRIMARY_PYTHON, reuse_venv=True)
@@ -216,7 +232,7 @@ def format(session: nox.Session) -> None:
     """
     session.install(f"ruff=={RUFF_VERSION}")
     apply = "--apply" in session.posargs
-    targets = ("lauren_di", "tests", "scripts", "examples", "noxfile.py")
+    targets = RUFF_TARGETS
     if apply:
         session.run("ruff", "format", *targets)
         session.run("ruff", "check", "--fix", *targets)
@@ -396,6 +412,26 @@ def llms_check(session: nox.Session) -> None:
     session.run("python", str(SCRIPTS_DIR / "check_llms_full.py"), *session.posargs)
 
 
+@nox.session(python=PRIMARY_PYTHON, reuse_venv=True, name="prds")
+def prds(session: nox.Session) -> None:
+    """Cross-check the PRD corpus with ``prds/check_consistency.py``.
+
+    Eight checks, none of which had a runner before goal #36: README↔disk index
+    parity, the ten-section template, every relative link, every ``PRD 0N §x``
+    cross-reference, the decision register, symbol/default/scope agreement
+    across PRDs 01-08, the no-web-framework rule, and the ``owners`` traceability
+    check that keeps ``prds/evidence/01-conformance-baseline.md`` pointing at the
+    goal that actually closed each divergence.
+
+    The script is standard-library only and reads the repository, so it needs no
+    install and no arguments; ``session.posargs`` is still forwarded, appended
+    after the script path, so an extra argument can never displace the check
+    itself. It exits 1 on any failure, which fails this session — that is the
+    whole point: a check a human has to remember to type is not a gate.
+    """
+    session.run("python", str(PRDS_CHECK), *session.posargs)
+
+
 # ---------------------------------------------------------------------------
 # Build and release
 # ---------------------------------------------------------------------------
@@ -553,6 +589,7 @@ def ci(session: nox.Session) -> None:
         ("parity", []),
         ("llms_check", []),
         ("docs_contract", []),
+        ("prds", []),
         ("docs", []),
         ("build", []),
         ("build_check", []),

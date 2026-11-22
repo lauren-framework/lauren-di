@@ -24,7 +24,7 @@ of scope for this package, however reasonable the feature sounds.
 ```bash
 pip install -e ".[dev]"
 
-pytest -q                      # full suite: 511 tests (485 on 3.10); +52 parity with ../lauren-framework
+pytest -q                      # full suite: 516 tests (490 on 3.10); +52 parity with ../lauren-framework
 pytest tests/unit -q           # one layer
 pytest -k "visibility" -q      # one topic
 
@@ -40,8 +40,8 @@ arguments, so local green means pipeline green. If `nox` is unavailable,
 ## Ground rules
 
 1. **Run `nox -s ci` before proposing a patch.** It runs lint, format, typecheck,
-   the 3.10–3.14 matrix, coverage with a fail-under gate, the llms/docs
-   contracts, and the build. A patch that fails it is not finished.
+   the 3.10–3.14 matrix, coverage with a fail-under gate, the llms/docs/PRD
+   corpus contracts, and the build. A patch that fails it is not finished.
 2. **Never weaken a gate to make a run green.** No lowering `fail_under`, no
    deleting or `xfail`-ing an assertion, no blanket `# noqa`, no narrowing a
    session to the tests that pass, no `--no-verify`. The difference between a

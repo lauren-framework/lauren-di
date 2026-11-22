@@ -37,6 +37,8 @@ nox -s typecheck                    # mypy
 nox -s docs                         # mkdocs build --strict into site/
 nox -s docs_contract                # docs-as-tests: nav, code blocks, API coverage
 nox -s llms_check                   # every lauren_di.__all__ symbol documented with an example
+nox -s prds                         # prds/check_consistency.py: index, template, links,
+                                    # cross-refs, decisions, symbols, scope, baseline owners
 
 # Packaging
 nox -s build                        # sdist + wheel into dist/
@@ -180,7 +182,7 @@ its own matcher against real `git check-ignore`.
 
 ```bash
 nox -s ci        # lint, format, typecheck, tests 3.10–3.14, coverage, llms_check,
-                 # docs_contract, docs, build, build_check
+                 # docs_contract, prds, docs, build, build_check
 ```
 
 If a session fails, fix the cause. **Never weaken a gate to get green** — do not

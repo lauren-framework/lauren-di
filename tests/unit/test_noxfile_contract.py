@@ -488,3 +488,90 @@ def test_the_matrix_job_runs_one_interpreter_per_job() -> None:
         "the matrix job runs `nox -s tests` without `--python`, so it expands to "
         "every supported interpreter instead of the one this job installed"
     )
+
+
+# ---------------------------------------------------------------------------
+# The PRD corpus gate: a check nobody runs is not a check
+# ---------------------------------------------------------------------------
+def test_the_prds_session_runs_the_consistency_check(noxfile: Any) -> None:
+    """``nox -s prds`` must actually execute ``prds/check_consistency.py``.
+
+    Before goal #36 the eight checks in that script ran only when a human typed
+    the command, which is how a silent off-by-one survived in
+    ``prds/evidence/01-conformance-baseline.md``: nothing in CI could see it.
+    """
+    assert noxfile.PRDS_CHECK.is_file(), f"{noxfile.PRDS_CHECK} is missing"
+
+    session = FakeSession()
+
+    noxfile.prds(session)
+
+    command = only(session, "python")
+    assert command[1] == str(noxfile.PRDS_CHECK)
+
+
+def test_the_prds_session_forwards_posargs(noxfile: Any) -> None:
+    """Arguments are appended, never substituted (the shape this file guards)."""
+    session = FakeSession("--verbose")
+
+    noxfile.prds(session)
+
+    assert only(session, "python")[2:] == ["--verbose"]
+
+
+def test_the_prds_gate_is_wired_into_both_the_aggregator_and_ci(noxfile: Any) -> None:
+    """Dropping the session from *either* side must fail here, not in review.
+
+    The generic parity tests above already cover both directions; this one names
+    the PRD corpus gate explicitly so the intent survives a refactor of those.
+    """
+    assert "prds" in ci_plan_sessions(noxfile), (
+        "`nox -s ci` no longer runs the `prds` session: the corpus checker would "
+        "be back to running only when someone remembers it"
+    )
+    invoked = set().union(*workflow_session_invocations().values())
+    assert "prds" in invoked, (
+        "no workflow in .github/workflows runs `nox -s prds`: the session would be "
+        "green locally and never execute in CI"
+    )
+    jobs = sorted(name for name, body in ci_jobs().items() if "nox -s prds" in body)
+    assert jobs, "no CI job body contains `nox -s prds`"
+
+
+def test_the_ruff_targets_cover_the_prd_checker_but_not_its_evidence(noxfile: Any) -> None:
+    """``prds/check_consistency.py`` is linted; ``prds/evidence/`` is not.
+
+    The probes under ``prds/evidence/`` are *cited* evidence — PRDs 02-08 quote
+    the ``E-nnn`` ids they emit and ``run_all.py`` fails when a cited id is
+    emitted by no probe — so reformatting one would invalidate the citation
+    chain. They stay excluded; the checker itself is checked like any other code.
+    """
+    targets = noxfile.RUFF_TARGETS
+    assert "prds" in targets or "prds/check_consistency.py" in targets, (
+        f"the ruff targets {targets} do not cover prds/check_consistency.py"
+    )
+    assert not any("evidence" in target for target in targets), (
+        f"the ruff targets {targets} name prds/evidence, whose probes must stay "
+        "byte-identical to what the PRDs cite"
+    )
+
+    config = PYPROJECT.read_text(encoding="utf-8")
+    assert re.search(r'extend-exclude\s*=\s*\[.*?"prds/evidence"', config, re.DOTALL), (
+        "pyproject.toml does not exclude prds/evidence from ruff, so `ruff check prds` "
+        "would report the probes and the target could only be kept green by "
+        "reformatting cited evidence"
+    )
+
+
+def test_lint_and_format_check_the_same_corpus(noxfile: Any) -> None:
+    """One tuple, two sessions: they cannot drift into covering different trees."""
+    targets = list(noxfile.RUFF_TARGETS)
+    lint_session = FakeSession()
+    noxfile.lint(lint_session)
+    format_session = FakeSession()
+    noxfile.format(format_session)
+
+    assert only(lint_session, "ruff")[-len(targets) :] == targets
+    format_commands = [cmd for cmd in format_session.commands if cmd[:2] == ["ruff", "format"]]
+    assert len(format_commands) == 1, f"expected one `ruff format`, got {format_commands}"
+    assert format_commands[0][-len(targets) :] == targets

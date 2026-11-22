@@ -82,6 +82,7 @@ Other gates worth knowing:
 | `nox -s lint` / `format` | ruff, including `RUF022`: `__all__` stays sorted |
 | `nox -s typecheck` / `typing` | `mypy --strict` and `pyright` strict over the public surface |
 | `nox -s coverage` | branch coverage against `fail_under` in `pyproject.toml` |
+| `nox -s prds` | `prds/check_consistency.py`: index parity, the ten-section template, every relative link, every `PRD 0N §x` cross-reference, the decision register, symbol/default/scope agreement, the no-web-framework rule, and the baseline's owner references |
 | `nox -s build build_check` | the wheel builds, `twine check --strict` passes |
 
 **Never weaken a gate to get green.** No lowering `fail_under`, no deleting or

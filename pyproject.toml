@@ -137,10 +137,19 @@ exclude_lines = [
 [tool.ruff]
 line-length = 100
 target-version = "py310"
-src = ["lauren_di", "tests", "scripts", "examples"]
+src = ["lauren_di", "tests", "scripts", "examples", "prds"]
 extend-exclude = [
     # Vendored reference implementation — kept byte-comparable with upstream.
     "lauren_di/_typing/forwardref.py",
+    # ``prds/evidence/`` holds the throwaway probe scripts behind the ``E-nnn``
+    # citations in PRDs 02-08, plus their recorded transcripts. They are *cited
+    # evidence*, not scratch: reformatting one would invalidate the id it emits,
+    # and ``prds/evidence/run_all.py --check`` diffs the transcripts it produces.
+    # ``tests/unit/test_gitignore_contract.py::EVIDENCE_BASE`` asserts the same
+    # files stay committed, and the exclusion is scoped to that directory so the
+    # rest of ``prds/`` — notably ``prds/check_consistency.py``, the gate in
+    # ``nox -s prds`` — is checked and formatted like any other code.
+    "prds/evidence",
 ]
 
 [tool.ruff.lint]
