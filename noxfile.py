@@ -198,12 +198,14 @@ def coverage(session: nox.Session) -> None:
 # ---------------------------------------------------------------------------
 @nox.session(python=PRIMARY_PYTHON, reuse_venv=True)
 def lint(session: nox.Session) -> None:
-    """Check code, tests and scripts with ruff (no writes).
+    """Check code, tests, scripts and examples with ruff (no writes).
 
     ``nox -s lint -- --fix`` opts into auto-fixes.
     """
     session.install(f"ruff=={RUFF_VERSION}")
-    session.run("ruff", "check", *session.posargs, "lauren_di", "tests", "scripts", "noxfile.py")
+    session.run(
+        "ruff", "check", *session.posargs, "lauren_di", "tests", "scripts", "examples", "noxfile.py"
+    )
 
 
 @nox.session(python=PRIMARY_PYTHON, reuse_venv=True)
@@ -214,7 +216,7 @@ def format(session: nox.Session) -> None:
     """
     session.install(f"ruff=={RUFF_VERSION}")
     apply = "--apply" in session.posargs
-    targets = ("lauren_di", "tests", "scripts", "noxfile.py")
+    targets = ("lauren_di", "tests", "scripts", "examples", "noxfile.py")
     if apply:
         session.run("ruff", "format", *targets)
         session.run("ruff", "check", "--fix", *targets)

@@ -11,7 +11,8 @@ standard library only, this checks:
    documentation).
 2. **Links** — every inline ``[text](target)`` in ``README.md``,
    ``CONTRIBUTING.md``, ``AGENTS.md``, ``CLAUDE.md``, ``CHANGELOG.md``,
-   ``llms.txt``, ``llms-full.txt`` and every ``docs/**/*.md`` whose target is
+   ``examples/README.md``, ``llms.txt``, ``llms-full.txt`` and every
+   ``docs/**/*.md`` whose target is
    not ``http(s)://``, ``mailto:``, ``#…`` or ``/…`` must resolve, after
    stripping the ``#fragment``, relative to the page that writes it. ``mkdocs
    build --strict`` only sees the pages it renders and ``prds/
@@ -19,7 +20,8 @@ standard library only, this checks:
    *inside* ``docs/`` passed every gate until this check existed (the failure
    mode baseline B-6 recorded).
 3. **Compile** — every fenced ``python`` block in ``README.md``,
-   ``CONTRIBUTING.md``, ``docs/**/*.md``, ``llms.txt`` and ``llms-full.txt``
+   ``CONTRIBUTING.md``, ``examples/README.md``, ``docs/**/*.md``, ``llms.txt``
+   and ``llms-full.txt``
    parses. A block whose info string carries ``run`` additionally executes, in
    file order, in one module namespace per file (later blocks may use names from
    earlier ones); top-level ``await`` is allowed and runs under ``asyncio.run``.
@@ -58,7 +60,13 @@ MKDOCS = ROOT / "mkdocs.yml"
 DOCS = ROOT / "docs"
 SCRIPTS = ROOT / "scripts"
 
-SOURCE_FILES: tuple[str, ...] = ("README.md", "CONTRIBUTING.md", "llms.txt", "llms-full.txt")
+SOURCE_FILES: tuple[str, ...] = (
+    "README.md",
+    "CONTRIBUTING.md",
+    "examples/README.md",
+    "llms.txt",
+    "llms-full.txt",
+)
 #: Pages whose *relative links* are resolved. A superset of ``SOURCE_FILES``:
 #: the contract compiles code in some pages, and every page a reader can reach
 #: must additionally address its neighbours correctly.
@@ -68,6 +76,7 @@ LINK_SOURCE_FILES: tuple[str, ...] = (
     "AGENTS.md",
     "CLAUDE.md",
     "CHANGELOG.md",
+    "examples/README.md",
     "llms.txt",
     "llms-full.txt",
 )
