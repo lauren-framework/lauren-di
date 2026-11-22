@@ -965,6 +965,21 @@ class DIContainer:
         self._validate_owning_module(owning_module, token)
         if token in self._providers and not multi:
             raise self._duplicate_error(token)
+        # A factory may be a generator function, in which case ``yield`` is the
+        # setup/teardown boundary exactly as it is for a generator provider
+        # registered through :meth:`register` (PRD 02 §5.8). The resolver and
+        # ``shutdown()`` already drive every provider whose record carries
+        # ``is_generator_provider``, so detecting it here is what keeps the two
+        # registration spellings one behaviour: without this flag the suspended
+        # generator itself was handed to consumers as the dependency, and its
+        # ``finally`` never ran.
+        _is_gen = inspect.isgeneratorfunction(factory) or inspect.isasyncgenfunction(factory)
+        if _is_gen and scope == Scope.TRANSIENT:
+            raise LifecycleConfigError(
+                f"Generator function provider {_describe(factory)!r} cannot use "
+                "Scope.TRANSIENT \u2014 transient instances are not tracked for cleanup.",
+                detail={"provider": _describe(factory)},
+            )
         # Build synthetic param names so the existing kwargs-based
         # resolver code path keeps working. Optional positions are
         # tracked separately so the resolver can fall back to ``None``.
@@ -989,6 +1004,7 @@ class DIContainer:
             owning_module=owning_module,
             factory=factory,
             is_function_provider=True,
+            is_generator_provider=_is_gen,
             provider_kind="factory",
             optional_dep_names=frozenset(optional_names),
             positional_arg_names=tuple(positional_names),

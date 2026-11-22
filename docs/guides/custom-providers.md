@@ -149,6 +149,33 @@ container.register_custom(
 `OptionalDep` is only meaningful inside an `injects` list. It is not an
 annotation and cannot be used in `Annotated`.
 
+A generator factory is driven the same way a generator provider is: the code
+before `yield` is setup, the yielded value is the dependency, and the code after
+`yield` runs when the owning lifetime ends.
+
+```python
+from collections.abc import Iterator
+
+from lauren_di import DIContainer, use_factory
+
+
+def pool() -> Iterator[str]:
+    connection = "connected"  # setup: runs during the first resolve
+    try:
+        yield connection  # the dependency value
+    finally:
+        connection = ""  # teardown: runs at shutdown() / scope exit
+
+
+container = DIContainer()
+container.register_custom(use_factory(provide="POOL", factory=pool))
+```
+
+A generator factory cannot be `Scope.TRANSIENT` — a transient instance is never
+tracked, so its teardown could never run; registration raises
+`LifecycleConfigError`, exactly as it does for an `@injectable()` generator
+provider.
+
 ### `use_existing` — an alias to another token
 
 ```python

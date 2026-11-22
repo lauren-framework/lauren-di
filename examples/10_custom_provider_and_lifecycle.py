@@ -10,9 +10,9 @@ other dependencies. Here a connection-pool description is built from
 dependencies it receives positionally.
 * a **generator provider** — ``@injectable()`` on a generator function, where
 the code before ``yield`` is setup and the code after runs at teardown. A
-generator is a *provider shape*, so it is spelled with the decorator: a plain
-``use_factory`` factory returns its value directly and is not driven as a
-generator.
+generator is a *provider shape*, and both spellings drive it: ``@injectable()``
+on the generator function, or a generator passed as ``use_factory``'s
+``factory`` — ``yield`` is the setup/teardown boundary either way.
 
 ``startup()`` builds every singleton, so the factory and the generator's setup
 both run before the first ``resolve``. ``shutdown()`` runs teardown and

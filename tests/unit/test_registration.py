@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from collections.abc import AsyncIterator, Iterator
 from typing import Protocol, runtime_checkable
 
 import pytest
@@ -9,6 +10,7 @@ from lauren_di import (
     DecoratorUsageError,
     DIContainer,
     DuplicateBindingError,
+    LifecycleConfigError,
     MetadataInheritanceError,
     MissingProviderError,
     Provider,
@@ -17,6 +19,7 @@ from lauren_di import (
     injectable_meta,
     post_construct,
     pre_destruct,
+    use_factory,
 )
 
 from helpers import run
@@ -208,3 +211,120 @@ def test_structural_protocols_are_bindable_tokens() -> None:
 
     assert container.has_provider(Store) is True
     assert type(run(container.resolve(Store))) is DictStore
+
+
+# -- generator factories: ``use_factory`` and ``register`` agree (PRD 02 §5.8) --
+
+
+def test_use_factory_drives_a_generator_and_tears_it_down() -> None:
+    """A generator factory is driven, not handed over as a suspended generator.
+
+    Before this rule the factory's return value was the *generator object*, so
+    consumers received ``<generator object ...>`` and the ``finally`` never ran.
+    """
+    log: list[str] = []
+
+    def pool() -> Iterator[str]:
+        log.append("setup")
+        try:
+            yield "pool-value"
+        finally:
+            log.append("teardown")
+
+    container = DIContainer()
+    provider = container.register_custom(use_factory(provide="POOL", factory=pool))
+    container.compile()
+
+    assert provider.is_generator_provider is True
+    assert run(container.resolve("POOL")) == "pool-value"
+    assert log == ["setup"], "the code before `yield` is the setup half"
+    assert run(container.shutdown()) == ()
+    assert log == ["setup", "teardown"], "shutdown() must run the code after `yield`"
+
+
+def test_use_factory_drives_an_async_generator() -> None:
+    log: list[str] = []
+
+    async def pool() -> AsyncIterator[str]:
+        log.append("setup")
+        try:
+            yield "async-pool"
+        finally:
+            log.append("teardown")
+
+    container = DIContainer()
+    provider = container.register_custom(use_factory(provide="APOOL", factory=pool))
+    container.compile()
+
+    assert provider.is_generator_provider is True
+    assert run(container.resolve("APOOL")) == "async-pool"
+    run(container.shutdown())
+    assert log == ["setup", "teardown"]
+
+
+def test_use_factory_generator_tears_down_at_scope_exit() -> None:
+    log: list[str] = []
+
+    def session() -> Iterator[str]:
+        log.append("setup")
+        try:
+            yield "session-obj"
+        finally:
+            log.append("teardown")
+
+    container = DIContainer()
+    container.register_custom(use_factory(provide="SESSION", factory=session, scope=Scope.REQUEST))
+    container.compile()
+
+    async def body() -> str:
+        async with container.scope() as scope:
+            value = await scope.resolve("SESSION")
+            assert log == ["setup"], "a request-scoped record tears down at scope exit"
+            return str(value)
+
+    assert run(body()) == "session-obj"
+    assert log == ["setup", "teardown"]
+
+
+def test_use_factory_rejects_a_transient_generator() -> None:
+    def pool() -> Iterator[str]:
+        yield "pool"
+
+    with pytest.raises(LifecycleConfigError) as caught:
+        DIContainer().register_custom(
+            use_factory(provide="POOL", factory=pool, scope=Scope.TRANSIENT)
+        )
+
+    assert caught.value.detail == {"provider": "pool"}
+    assert "cannot use Scope.TRANSIENT" in caught.value.message
+
+
+def test_use_factory_leaves_a_plain_factory_alone() -> None:
+    """The generator rule must not turn an ordinary factory into a generator."""
+
+    async def build() -> int:
+        return 7
+
+    container = DIContainer()
+    plain = container.register_custom(use_factory(provide="N", factory=lambda: 42))
+    coro = container.register_custom(use_factory(provide="C", factory=build))
+    container.compile()
+
+    assert plain.is_generator_provider is False
+    assert coro.is_generator_provider is False
+    assert run(container.resolve("N")) == 42
+    assert run(container.resolve("C")) == 7
+
+
+def test_use_factory_docstring_states_the_generator_rule() -> None:
+    """The docstring and the behaviour above must state one rule, not two.
+
+    A rule that only lives in a test is a rule a reader never sees; a rule that
+    only lives in prose is a rule nothing checks. This pins the wording the
+    tests above rely on.
+    """
+    doc = use_factory.__doc__ or ""
+    assert "setup/teardown" in doc
+    assert "Scope.TRANSIENT" in doc
+    assert "LifecycleConfigError" in doc
+    assert "register_factory" in doc

@@ -400,6 +400,17 @@ def use_factory(
     Async factories work transparently — ``lauren_di`` awaits the return value
     when it's a coroutine, so an ``async def`` factory is just a
     factory.
+
+    A generator function works here too, and ``yield`` is the setup/teardown
+    boundary exactly as it is for an ``@injectable()`` generator provider
+    (PRD 02 §5.8): the code before ``yield`` runs during the first resolve, the
+    yielded value is the dependency, and the code after ``yield`` — typically a
+    ``finally`` — runs when the owning lifetime ends, which is ``shutdown()``
+    for a singleton and scope exit for a request-scoped record. A generator
+    factory cannot be ``Scope.TRANSIENT``: registration raises
+    :class:`LifecycleConfigError`, because a transient instance is never
+    tracked for cleanup. ``register_factory`` applies the same two rules, so
+    the two spellings of a generator provider cannot disagree.
     """
     _validate_token(provide, where="use_factory")
     if not callable(factory):

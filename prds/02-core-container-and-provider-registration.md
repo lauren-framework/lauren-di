@@ -541,8 +541,10 @@ async def async_connection(cfg: Config):
 
 Rules:
 
-- Detection is `inspect.isgeneratorfunction` or `inspect.isasyncgenfunction`; the record carries
-  `is_generator_provider=True`.
+- Detection is `inspect.isgeneratorfunction` or `inspect.isasyncgenfunction`, and it applies to
+  both registration spellings — an `@injectable()` generator provider and a generator passed as
+  `use_factory`/`register_factory`'s `factory`; the record carries `is_generator_provider=True`
+  either way, so the two spellings cannot disagree.
 - Resolution advances the generator exactly one step (`next()` / `__anext__()`); the yielded value is
   the dependency.
 - Teardown advances the generator one further step, which runs the code after `yield` (typically a
@@ -700,8 +702,8 @@ records what the reference implementation actually did on 2026-11-21, not what i
 | R-11 | Registering the same function twice raises `DuplicateBindingError` | `register` | raised | T02-11 |
 | R-12 | A function provider's token is the function object and `factory` is the function | `register` | `cls is fn`, `factory is fn`, `is_function_provider=True` | T02-12 |
 | R-13 | Function dependencies come from the function's signature, with the §5.5 rules | `_inspect_callable_deps` | `deps=(('d', Dep),)`; an unannotated param raised `UnresolvableParameterError` | T02-13 |
-| R-14 | Generator functions set `is_generator_provider=True` | `register` (`inspect.isgeneratorfunction`) | `True` for a `yield` function; async generators too | T02-14 |
-| R-15 | A generator provider with `Scope.TRANSIENT` raises `LifecycleConfigError` at registration (D-17) | `register` | raised the framework base `StartupError` | T02-15 |
+| R-14 | Generator functions set `is_generator_provider=True` | `register` and `register_factory` (`inspect.isgeneratorfunction`) | `True` for a `yield` function; async generators too | T02-14 |
+| R-15 | A generator provider with `Scope.TRANSIENT` raises `LifecycleConfigError` at registration (D-17) | `register` and `register_factory` | raised the framework base `StartupError` | T02-15 |
 | R-16 | Class deps come from `inspect.signature(cls)` | `_inspect_class_deps` | `__new__`-only and `__signature__` classes yield the same deps | T02-16 |
 | R-17 | `self`, `cls`, `*args` and `**kwargs` are never deps | `_params_to_deps` | `deps=()` for a `*args, **kwargs` constructor | T02-17 |
 | R-18 | An unannotated parameter without a default fails registration | `_params_to_deps` | `UnresolvableParameterError` with `detail={"target", "param"}` | T02-18 |
