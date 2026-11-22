@@ -5,7 +5,7 @@
 E-50 Depends[Repo] raw annotation: typing.Annotated[__main__.Repo, <class 'lauren.extractors.Depends'>]
 E-51 stripped: _AnnotatedAlias
 E-52 Depends[Repo] resolves: Repo
-E-53 Depends[fn] raw annotation: typing.Annotated[fn_other, <class 'lauren.extractors.Depends'>]
+E-53 Depends[fn] raw annotation: typing.Annotated[__main__.fn_other, <class 'lauren.extractors.Depends'>]
 E-54 Depends[fn] resolves: Other
 E-55 body field annotation: typing.Annotated[__main__.Repo, Inject(<class '__main__.Repo'>)]
 E-55b body field resolves: Repo

@@ -145,6 +145,11 @@ extend-exclude = [
     # citations in PRDs 02-08, plus their recorded transcripts. They are *cited
     # evidence*, not scratch: reformatting one would invalidate the id it emits,
     # and ``prds/evidence/run_all.py --check`` diffs the transcripts it produces.
+    # That diff is a gate, not a suggestion: ``nox -s prds_evidence`` runs it (about
+    # 15 s, no writes), ``nox -s ci`` runs that session, and the ``prds-evidence``
+    # job in ``.github/workflows/lint.yml`` runs it on every push — so reformatting
+    # a probe here fails a red build that names the file, rather than silently
+    # invalidating a citation nobody re-checks.
     # ``tests/unit/test_gitignore_contract.py::EVIDENCE_BASE`` asserts the same
     # files stay committed, and the exclusion is scoped to that directory so the
     # rest of ``prds/`` — notably ``prds/check_consistency.py``, the gate in

@@ -23,6 +23,22 @@ Exit status is non-zero when any probe fails or a cited id is never emitted.
 Current state: **23 probes, all `exit=0`; audit PASS** (188 cited ids, 260 emitted ids,
 no cited-but-not-emitted ids).
 
+## The gate
+
+`--check` is run by `nox -s prds_evidence`, which `nox -s ci` runs and the
+`prds-evidence` job in `.github/workflows/lint.yml` runs on every push (about 15 s,
+no writes). Before goal #48 nothing ran it, so a reformatted probe or a hand-edited
+transcript could invalidate a citation and every gate stayed green.
+
+The transcripts are recorded on the project's primary interpreter (`PRIMARY_PYTHON`,
+3.14) and against the reference commit `tests.yml`'s parity job pins. Two probes
+quote CPython rather than `lauren` — `E-306c` records asyncio's message and `E-53`
+records how a function annotation is rendered — and both differ on 3.13, so the
+session refuses to run on any other interpreter rather than reporting phantom drift.
+The recorded `lauren.__file__` line is compared with the reference root normalised
+(`<reference>`), because the absolute path is where the evidence was captured, not
+what it observed; the `_di/__init__.py` sha256 beside it is still compared verbatim.
+
 ## Reference pin
 
 `import lauren` in this environment resolves to an *installed release* at

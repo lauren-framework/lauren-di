@@ -46,9 +46,11 @@ class FakeSession:
         self.commands: list[list[str]] = []
         self.chdirs: list[pathlib.Path] = []
         self.logs: list[str] = []
+        self.installs: list[list[str]] = []
 
     def install(self, *args: Any, **kwargs: Any) -> None:
-        """Record nothing: the tests only care about the commands."""
+        """Record the request: a session that forgets a dependency must be visible."""
+        self.installs.append([str(arg) for arg in args])
 
     def run(self, *args: Any, **kwargs: Any) -> None:
         self.commands.append([str(arg) for arg in args])
@@ -551,6 +553,144 @@ def test_the_prds_gate_is_wired_into_both_the_aggregator_and_ci(noxfile: Any) ->
     )
     jobs = sorted(name for name, body in ci_jobs().items() if "nox -s prds" in body)
     assert jobs, "no CI job body contains `nox -s prds`"
+
+
+# ---------------------------------------------------------------------------
+# The evidence gate: the E-nnn citation chain, re-audited instead of assumed
+# ---------------------------------------------------------------------------
+
+
+def test_the_prds_evidence_session_runs_the_check_gate(noxfile: Any) -> None:
+    """``nox -s prds_evidence`` must run ``run_all.py`` in its *gate* mode.
+
+    ``--check`` is what makes the run an audit: without it the script *records*,
+    overwriting the transcripts it is supposed to compare. Before goal #48 no
+    session, job or test ran this at all, so a reformatted probe or an edited
+    transcript invalidated a citation silently.
+    """
+    assert noxfile.PRDS_EVIDENCE_RUN_ALL.is_file(), f"{noxfile.PRDS_EVIDENCE_RUN_ALL} is missing"
+
+    session = FakeSession()
+
+    noxfile.prds_evidence(session)
+
+    command = only(session, "python")
+    assert command[1] == str(noxfile.PRDS_EVIDENCE_RUN_ALL)
+    assert command[2] == "--check", (
+        "the evidence session no longer passes `--check`: it would re-record the "
+        "transcripts instead of auditing them, so drift could never be reported"
+    )
+
+
+def test_the_prds_evidence_session_forwards_posargs_without_displacing_the_gate(
+    noxfile: Any,
+) -> None:
+    """Arguments are appended after ``--check``, never substituted for it."""
+    session = FakeSession("--quiet")
+
+    noxfile.prds_evidence(session)
+
+    command = only(session, "python")
+    assert command[2] == "--check"
+    assert command[3:] == ["--quiet"]
+
+
+def test_the_prds_evidence_session_installs_the_reference_dependency(noxfile: Any) -> None:
+    """A fresh venv has no ``anyio``, and every probe imports ``lauren``.
+
+    Measured: with only ``PYTHONPATH`` pointing at the checkout, ``import lauren``
+    fails at ``lauren/_forms/_upload.py`` with ``ModuleNotFoundError: No module
+    named 'anyio'``, so a session that installed nothing would report all 23
+    probes as failures rather than auditing them.
+    """
+    session = FakeSession()
+
+    noxfile.prds_evidence(session)
+
+    installed = [arg for request in session.installs for arg in request]
+    for dependency in noxfile.REFERENCE_DEPENDENCIES:
+        assert dependency in installed, (
+            f"`nox -s prds_evidence` does not install {dependency!r}, which the "
+            "reference framework needs before any probe can import it"
+        )
+
+
+def test_the_prds_evidence_gate_refuses_another_interpreter(noxfile: Any) -> None:
+    """Two probes quote CPython, so the transcripts are pinned to one interpreter.
+
+    ``E-306c`` records asyncio's message and ``E-53`` records how a function
+    annotation is rendered; both changed between 3.13 and 3.14. Running the gate
+    on another interpreter would therefore report drift that is not a change in
+    ``lauren``, so the session refuses instead of failing mysteriously.
+    """
+    session = FakeSession()
+    session.python = "3.13"
+
+    with pytest.raises(AssertionError, match="recorded transcripts were captured"):
+        noxfile.prds_evidence(session)
+
+
+def test_the_prds_evidence_gate_is_wired_into_both_the_aggregator_and_ci(noxfile: Any) -> None:
+    """Dropping the session from *either* side must fail here, not in review.
+
+    The generic parity tests above cover both directions; this names the evidence
+    gate explicitly so the intent survives a refactor of those.
+    """
+    assert "prds_evidence" in ci_plan_sessions(noxfile), (
+        "`nox -s ci` no longer runs the `prds_evidence` session: the citation chain "
+        "PRDs 02-08 rest on would be back to being audited only by hand"
+    )
+    invoked = set().union(*workflow_session_invocations().values())
+    assert "prds_evidence" in invoked, (
+        "no workflow in .github/workflows runs `nox -s prds_evidence`: the session "
+        "would be green locally and never execute in CI"
+    )
+    jobs = sorted(name for name, body in ci_jobs().items() if "nox -s prds_evidence" in body)
+    assert jobs, "no CI job body contains `nox -s prds_evidence`"
+
+
+def test_the_prds_evidence_job_pins_the_checkout_the_runner_measures(noxfile: Any) -> None:
+    """The probes measure a *checkout*, so the job must clone it where they look.
+
+    ``prds/evidence/run_all.py`` resolves ``<repo>/../lauren-framework`` and
+    refuses to run when ``lauren`` imports from anywhere else, so the job has to
+    clone into that path and check out a pinned commit: a branch or tag moves, and
+    every recorded transcript carries the sha256 of ``_di/__init__.py``.
+    """
+    body = ci_jobs()["lint.yml:prds-evidence"]
+    assert "nox -s prds_evidence" in body, "the evidence job does not run the session"
+    sha = re.search(r"^\s*REFERENCE_SHA:\s*(?P<sha>\S+)\s*$", body, re.MULTILINE)
+    assert sha is not None, "the evidence job clones the reference without pinning a commit"
+    assert _COMMIT.match(sha.group("sha")), (
+        f"REFERENCE_SHA is {sha.group('sha')!r}, not a full 40-character commit id: the "
+        "transcripts record a sha256 of that build, so the pin has to be exact"
+    )
+    assert noxfile.REFERENCE_DIR.name in body, (
+        f"the job clones into a path that is not {noxfile.REFERENCE_DIR.name!r}, which is "
+        "where prds/evidence/run_all.py looks for the checkout"
+    )
+
+
+def test_both_reference_jobs_pin_the_same_commit() -> None:
+    """One reference build, two gates: parity and the evidence must agree.
+
+    ``tests.yml:parity`` measures the checkout and ``lint.yml:prds-evidence``
+    re-runs the probes against it. If the two pins drift apart, one gate measures a
+    build the other never saw — and the transcripts, which record a sha256, would
+    describe the older one. Bumping the pin is a deliberate act: it also means
+    re-recording ``prds/evidence/output/``.
+    """
+
+    def pin(workflow: str) -> str:
+        body = ci_jobs()[workflow]
+        match = re.search(r"^\s*REFERENCE_SHA:\s*(?P<sha>\S+)\s*$", body, re.MULTILINE)
+        assert match is not None, f"{workflow} pins no REFERENCE_SHA"
+        return match.group("sha")
+
+    assert pin("tests.yml:parity") == pin("lint.yml:prds-evidence"), (
+        "tests.yml:parity and lint.yml:prds-evidence pin different reference commits: "
+        "re-record prds/evidence/output/ when the pin moves, then bump both"
+    )
 
 
 def ruff_config() -> str:

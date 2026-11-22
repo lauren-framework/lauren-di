@@ -19,6 +19,12 @@ prose assertions.  This runner makes the chain reproducible:
    some probe, or be listed as reserved in PRD 06 §6.6.  ``--check`` also
    fails when a transcript differs from the recorded one.
 
+``--check`` is the gate: ``nox -s prds_evidence`` runs it, ``nox -s ci`` runs
+that session, and ``.github/workflows/lint.yml`` runs it on every push, so the
+citations are re-audited after every probe or PRD edit instead of only when a
+human remembers the command.  Measured on ``f2d9a34``: 14 s, no writes, 188 cited
+ids, 260 emitted, 0 cited-but-not-emitted.
+
 Usage::
 
     python3 prds/evidence/run_all.py            # run, record, audit
@@ -49,6 +55,9 @@ OUTPUT = EVIDENCE / "output"
 ID_RE = re.compile(r"\bE-\d{2,3}[a-z]?\b")
 ADDR_RE = re.compile(r"0x[0-9a-fA-F]+")
 RESERVED_HEADING = "**Reserved ids.**"
+#: What the reference root is replaced with before two transcripts are compared;
+#: see :func:`normalise_reference`.
+REFERENCE_PLACEHOLDER = "<reference>"
 
 
 def sha256(path: Path) -> str:
@@ -95,6 +104,28 @@ def reference_origin(root: Path | None = None) -> tuple[str, str]:
 
 def probes() -> list[Path]:
     return sorted(p for p in EVIDENCE.glob("prd*/**/*.py") if p.name != "__init__.py")
+
+
+def normalise_reference(text: str, reference: Path | None = None) -> str:
+    """Replace the machine-specific reference root with a stable placeholder.
+
+    Every transcript records ``lauren.__file__``, which is an *absolute* path, so
+    the recorded files carry the root the evidence was captured under.  Comparing
+    those bytes literally makes ``--check`` pass on exactly one machine — the one
+    that recorded them — which would have left ``nox -s prds_evidence`` red in CI
+    forever, where the reference is cloned somewhere else entirely.  The
+    observation is the transcript body plus the ``_di/__init__.py`` sha256 beside
+    it (which still pins the artifact); the root is only *where it happened to
+    live*, and two machines that agree on the body and on the sha are looking at
+    the same build.
+
+    Only the comparison is normalised.  Nothing on disk is rewritten, so the
+    recorded transcripts stay byte-identical to what the PRDs cite, and the drift
+    this gate exists to catch — a probe that changed, a transcript edited by
+    hand, a different reference commit — is still caught.
+    """
+    root = str((reference or REFERENCE).resolve())
+    return text.replace(root, REFERENCE_PLACEHOLDER)
 
 
 def run_probe(script: Path, env: dict[str, str]) -> tuple[int, str]:
@@ -291,10 +322,18 @@ def main(argv: list[str] | None = None) -> int:
             if not destination.is_file():
                 drift.append(f"{rel.as_posix()} (no recorded transcript)")
             else:
-                previous = destination.read_text()
-                if previous != recorded:
-                    drift.append(rel.as_posix())
-                    diff.append((rel.as_posix(), previous, recorded))
+                # Compare with the reference root normalised on *both* sides: the
+                # recorded transcript carries the absolute path of the checkout the
+                # evidence was captured under, and CI clones it elsewhere.  The
+                # sha256 line beside it is compared verbatim, so a different
+                # reference build is still drift.
+                previous = normalise_reference(destination.read_text())
+                current = normalise_reference(recorded)
+                if previous != current:
+                    drift.append(
+                        f"{rel.as_posix()} -> {destination.relative_to(EVIDENCE).as_posix()}"
+                    )
+                    diff.append((rel.as_posix(), previous, current))
         else:
             destination.write_text(recorded)
         status = "ok " if code == 0 else "FAIL"

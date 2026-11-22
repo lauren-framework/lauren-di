@@ -23,4 +23,4 @@ E-305c resolve(list[Repo])                                 -> ok: ['A', 'B']
 E-305d get_provider(Repo).multi                            -> ok: True
 E-306 compile, override target absent                      -> ok: None
 E-306b applied_overrides                                   -> ok: frozenset()
-E-306c optional flag is not consulted by the container     -> ValueError | detail: None | msg: a coroutine was expected, got False
+E-306c optional flag is not consulted by the container     -> TypeError | detail: None | msg: An asyncio.Future, a coroutine or an awaitable is required

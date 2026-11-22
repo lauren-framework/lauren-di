@@ -55,6 +55,15 @@ DOCS_REQUIREMENTS = ROOT / "docs-requirements.txt"
 #: ``nox -s prds`` is now the gate, and it is part of ``nox -s ci``.
 PRDS_DIR = ROOT / "prds"
 PRDS_CHECK = PRDS_DIR / "check_consistency.py"
+#: The evidence runner behind PRDs 02-08's ``E-nnn`` citations. ``--check``
+#: re-executes all 23 probes under ``prds/evidence/prd*/``, diffs each transcript
+#: against the recorded one under ``prds/evidence/output/``, and fails when a cited
+#: id is emitted by no probe. Nothing ran it before goal #48 — no session, no job,
+#: no test — so a probe or a PRD edit could invalidate the citation chain and every
+#: gate stayed green; that is also what kept goal #37's "never reformat cited
+#: evidence" rule a matter of trust rather than a red build.
+PRDS_EVIDENCE_DIR = PRDS_DIR / "evidence"
+PRDS_EVIDENCE_RUN_ALL = PRDS_EVIDENCE_DIR / "run_all.py"
 
 #: The interpreters the library supports (``requires-python = ">=3.10"``).
 #: ``.github/workflows/tests.yml`` must list exactly these in its matrix and
@@ -521,6 +530,60 @@ def prds(session: nox.Session) -> None:
     session.run("python", str(PRDS_CHECK), *session.posargs)
 
 
+@nox.session(python=PRIMARY_PYTHON, reuse_venv=True, name="prds_evidence")
+def prds_evidence(session: nox.Session) -> None:
+    """Re-run the PRD evidence probes and audit their ``E-nnn`` citations.
+
+    ``prds/evidence/run_all.py --check`` executes every probe under
+    ``prds/evidence/prd*/`` (23 of them, emitting 260 ids) against the pinned
+    reference checkout, compares each transcript with the recorded one under
+    ``prds/evidence/output/``, and fails when an ``E-nnn`` id cited in
+    ``prds/*.md`` is emitted by no probe (PRD 06 §6.6). It is what keeps the
+    citation chain the PRDs rest on true, and it is what makes goal #37's "never
+    reformat cited evidence" rule fail loudly instead of silently: a reformatted
+    probe, or a hand-edited transcript, exits non-zero naming the file.
+
+    Cost: about 15 s (measured 14 s on ``f2d9a34``), and ``--check`` writes
+    nothing — ``git status --porcelain`` is empty afterwards — so it is cheap
+    enough to run on every push. Nothing ran it before goal #48, which is the
+    same "a check nobody runs is not a check" defect ``prds`` (goal #36) closed
+    for the corpus checker one level up.
+
+    The session is pinned to ``PRIMARY_PYTHON`` and refuses any other
+    interpreter. A probe prints what the reference *raised*, and two of those
+    observations quote CPython rather than ``lauren``: ``E-306c`` records
+    asyncio's message (``a coroutine was expected, got False`` on 3.13,
+    ``An asyncio.Future, a coroutine or an awaitable is required`` on 3.14) and
+    ``E-53`` records how 3.14 renders a function annotation
+    (``__main__.fn_other``) versus 3.13's bare ``fn_other``. The recorded
+    transcripts were therefore re-recorded on the primary interpreter, so the
+    gate is reproducible on the interpreter every other gate runs.
+
+    No project install: the runner is standard-library only. The reference
+    framework's single runtime dependency is installed because every probe
+    imports ``lauren`` through the runner's ``PYTHONPATH`` pin, and ``import
+    lauren`` needs it — a fresh session venv would otherwise report every probe
+    as an ImportError.
+
+    ``--check`` is unconditional and comes first, so ``session.posargs`` can
+    widen the run but can never turn it into the recording mode that overwrites
+    the very transcripts it is supposed to compare.
+    """
+    if not PRDS_EVIDENCE_RUN_ALL.is_file():
+        session.error(f"{PRDS_EVIDENCE_RUN_ALL} is missing")
+    requested = getattr(session, "python", PRIMARY_PYTHON)
+    if requested != PRIMARY_PYTHON:
+        session.error(
+            f"the recorded transcripts were captured on Python {PRIMARY_PYTHON} and two "
+            f"probes quote CPython's own error text, so running this session on "
+            f"{requested} reports drift that is not a change in `lauren`. Drop `--python` "
+            f"(or pass --python {PRIMARY_PYTHON}) and re-record deliberately — "
+            "`python prds/evidence/run_all.py` — if the corpus should move."
+        )
+    session.install(*REFERENCE_DEPENDENCIES)
+    session.run("python", str(PRDS_EVIDENCE_RUN_ALL), "--check", *session.posargs)
+
+
 # ---------------------------------------------------------------------------
 # Build and release
 # ---------------------------------------------------------------------------
@@ -679,6 +742,7 @@ def ci(session: nox.Session) -> None:
         ("llms_check", []),
         ("docs_contract", []),
         ("prds", []),
+        ("prds_evidence", []),
         ("docs", []),
         ("build", []),
         ("build_check", []),

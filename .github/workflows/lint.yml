@@ -90,3 +90,43 @@ jobs:
       # actually closed each divergence. Nothing ran it before goal #36, which is
       # exactly how a silent off-by-one survived in that table.
       - run: nox -s prds
+
+  prds-evidence:
+    name: PRD evidence probes and E-nnn citations
+    runs-on: ubuntu-latest
+    env:
+      # The probes measure the *reference* checkout, so this job clones the same
+      # commit `tests.yml`'s parity job pins: every recorded transcript carries the
+      # sha256 of `lauren/_di/__init__.py`, and `--check` reports a different build
+      # as drift. Bumping the pin therefore means re-recording the transcripts
+      # (`python prds/evidence/run_all.py`), which is a deliberate, reviewable act
+      # rather than something a version bump does on the way past.
+      REFERENCE_REPO: https://github.com/lauren-framework/lauren-framework.git
+      REFERENCE_SHA: 0009d4398d0be12ce02fc416520802e6c1f05531
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.14"
+      - run: python -m pip install "nox>=2024.4.15"
+      # `prds/evidence/run_all.py` expects the checkout at
+      # `<workspace>/../lauren-framework`, the same path `tests/parity/conftest.py`
+      # uses, which is outside `GITHUB_WORKSPACE` and so cannot be an
+      # `actions/checkout` path.
+      - name: Clone the pinned reference checkout
+        env:
+          PRDS_REFERENCE_TOKEN: ${{ secrets.PARITY_REFERENCE_TOKEN }}
+        run: |
+          set -eu
+          url="${REFERENCE_REPO}"
+          if [ -n "${PRDS_REFERENCE_TOKEN:-}" ]; then
+            url="https://x-access-token:${PRDS_REFERENCE_TOKEN}@github.com/lauren-framework/lauren-framework.git"
+          fi
+          git clone --quiet --filter=blob:none "${url}" "${GITHUB_WORKSPACE}/../lauren-framework"
+          git -C "${GITHUB_WORKSPACE}/../lauren-framework" checkout --quiet "${REFERENCE_SHA}"
+      # `--check` re-runs all 23 probes, diffs each transcript against the recorded
+      # one under `prds/evidence/output/`, and fails when a cited `E-nnn` id is
+      # emitted by no probe. Nothing ran it before goal #48: the citation chain
+      # PRDs 02-08 rest on could rot after any probe or PRD edit, and no gate
+      # would have noticed. It takes ~15 s and writes nothing.
+      - run: nox -s prds_evidence
