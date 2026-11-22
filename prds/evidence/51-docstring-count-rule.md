@@ -81,3 +81,4 @@ does not need re-typing when the module grows.
 | `AGENTS.md` quick-start count | 594 / 568 / +52 → **595 / 569 / +52** (this module gained one test), re-measured with `--collect-only` on 3.13 and 3.10 |
 | `nox -s lint format` | clean (`ruff check` all passed, 71 files formatted) |
 | `nox -s ci` | green — `ci: all sessions passed` |
+| GitHub Actions on `33600f4` | `lint`, `tests`, `docs` and `codeql` all `completed/success` |
