@@ -1,5 +1,5 @@
 # probe: prd08/p3.py
-# lauren.__file__: /root/python_projects/lauren-all/lauren-framework/lauren/__init__.py
+# lauren.__file__: <reference>/lauren/__init__.py
 # reference._di.__init__.py sha256: 22d1c3f33814c02ed14dc6129cfc82c8ecdaf87461c09875dee6823ec3289bd2
 # exit: 0
 E-411 compile with a Request parameter   -> ok: None

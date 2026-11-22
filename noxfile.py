@@ -559,6 +559,16 @@ def prds_evidence(session: nox.Session) -> None:
     transcripts were therefore re-recorded on the primary interpreter, so the
     gate is reproducible on the interpreter every other gate runs.
 
+    The reference checkout must be **clean**. A dirty tree is a different build
+    from the pinned commit — this repository's sibling checkout carries
+    uncommitted edits that add one name to ``lauren.__all__`` (295 where the pin
+    has 294), and the ``_di/__init__.py`` sha256 recorded in every header is
+    identical in both — so the runner refuses to measure it and says how to
+    proceed: clean it, or point ``PRDS_EVIDENCE_REFERENCE`` at a clean copy of the
+    pin (``git clone <reference> /tmp/ref-clean && git -C /tmp/ref-clean checkout
+    <sha>``). CI never sets the variable: it clones the pin into the default
+    ``<repo>/../lauren-framework``, which is clean by construction.
+
     No project install: the runner is standard-library only. The reference
     framework's single runtime dependency is installed because every probe
     imports ``lauren`` through the runner's ``PYTHONPATH`` pin, and ``import

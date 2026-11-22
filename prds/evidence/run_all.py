@@ -49,18 +49,23 @@ from pathlib import Path
 EVIDENCE = Path(__file__).resolve().parent
 PRDS = EVIDENCE.parent
 REPO = PRDS.parent
-REFERENCE = (REPO.parent / "lauren-framework").resolve()
+#: The reference checkout every probe measures. ``PRDS_EVIDENCE_REFERENCE``
+#: overrides it so a recording can be made against a *clean* copy of the pinned
+#: commit: the sibling checkout is a working tree, and uncommitted edits there are
+#: a different build from the commit it claims (the same distinction
+#: ``nox -s parity`` logs). CI never sets it — it clones the pin into the default
+#: path — so the default is what the gate runs on.
+REFERENCE = Path(
+    os.environ.get("PRDS_EVIDENCE_REFERENCE") or REPO.parent / "lauren-framework"
+).resolve()
 OUTPUT = EVIDENCE / "output"
 
 ID_RE = re.compile(r"\bE-\d{2,3}[a-z]?\b")
 ADDR_RE = re.compile(r"0x[0-9a-fA-F]+")
 RESERVED_HEADING = "**Reserved ids.**"
-#: What the reference root is replaced with before two transcripts are compared;
-#: see :func:`normalise_reference`.
+#: What the reference root is written as in a transcript header, so a recorded
+#: transcript names the artifact it measured rather than the machine that ran it.
 REFERENCE_PLACEHOLDER = "<reference>"
-#: The one header field that names *where* the evidence was captured. Every other
-#: byte of a transcript is an observation.
-ORIGIN_LINE = re.compile(r"^# lauren\.__file__:.*$", re.MULTILINE)
 
 
 def sha256(path: Path) -> str:
@@ -109,30 +114,35 @@ def probes() -> list[Path]:
     return sorted(p for p in EVIDENCE.glob("prd*/**/*.py") if p.name != "__init__.py")
 
 
-def normalise_reference(text: str) -> str:
-    """Blank out the recorded ``lauren.__file__`` before two transcripts are compared.
+def reference_dirty_paths(reference: Path | None = None) -> int:
+    """Uncommitted paths in the reference checkout, or 0 when git cannot say.
 
-    Every transcript records ``lauren.__file__``, an *absolute* path, so the
-    recorded files carry the root the evidence was captured under.  Comparing
-    those bytes literally makes ``--check`` pass on exactly one machine — the one
-    that recorded them — so ``nox -s prds_evidence`` would be red in CI, where the
-    checkout is cloned to ``/home/runner/work/lauren-di/lauren-framework``.
-
-    Rewriting the *header field* (rather than substituting this machine's root)
-    is what makes the comparison machine-independent: substituting only rewrote
-    the freshly produced side, because the recorded side names a root that does
-    not exist here, so CI reported drift on the header of all 24 transcripts and
-    nothing else — measured.  The observation is the transcript body plus the
-    ``_di/__init__.py`` sha256 on the line below, and that line is still compared
-    verbatim: two machines that agree on the body and the sha are looking at the
-    same build.
-
-    Nothing on disk is rewritten, so the recorded transcripts stay byte-identical
-    to what the PRDs cite, and the drift this gate exists to catch — a probe that
-    changed, a transcript edited by hand, a different reference commit — is still
-    caught.
+    The corpus describes the *pinned commit*, so a dirty working tree is a
+    different build from the one the transcripts record — the same distinction
+    ``nox -s parity`` logs. It is worth checking because the ``_di/__init__.py``
+    sha256 in every header does **not** cover it: this repository's sibling
+    checkout carries uncommitted edits that add one name to ``lauren.__all__``
+    (295 where the pinned commit has 294), and the ``_di`` digest is identical in
+    both. Recording or auditing against a dirty tree would quietly describe an
+    artifact nobody can reproduce from the pin.
     """
-    return ORIGIN_LINE.sub(f"# lauren.__file__: {REFERENCE_PLACEHOLDER}", text)
+    try:
+        completed = subprocess.run(
+            [
+                "git",
+                "-C",
+                str(reference or REFERENCE),
+                "status",
+                "--porcelain",
+                "--untracked-files=no",
+            ],
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+    except OSError:
+        return 0
+    return len([line for line in completed.stdout.splitlines() if line.strip()])
 
 
 def run_probe(script: Path, env: dict[str, str]) -> tuple[int, str]:
@@ -143,14 +153,29 @@ def run_probe(script: Path, env: dict[str, str]) -> tuple[int, str]:
         capture_output=True,
         text=True,
     )
-    transcript = completed.stdout + (f"\n[stderr]\n{completed.stderr}" if completed.stderr.strip() else "")
+    transcript = completed.stdout + (
+        f"\n[stderr]\n{completed.stderr}" if completed.stderr.strip() else ""
+    )
     return completed.returncode, ADDR_RE.sub("0x<addr>", transcript)
 
 
 def header(script: Path, origin: str, di_sha: str, code: int) -> str:
+    """The transcript header: what was measured, not where this machine keeps it.
+
+    ``origin`` is an absolute path, so writing it verbatim made every recorded
+    transcript machine-specific: ``--check`` then passed on exactly one machine —
+    the one that recorded the corpus — and ``nox -s prds_evidence`` was red in CI,
+    where the reference is cloned to
+    ``/home/runner/work/lauren-di/lauren-framework``, on all 24 transcripts and on
+    nothing else (measured). The root is where the evidence was captured; the
+    ``_di/__init__.py`` sha256 below it is *what* was captured, and that is the
+    part worth comparing byte for byte.
+    """
+    suffix = "/lauren/__init__.py"
+    label = f"{REFERENCE_PLACEHOLDER}{suffix}" if origin.endswith(suffix) else origin
     return (
         f"# probe: {script.relative_to(EVIDENCE).as_posix()}\n"
-        f"# lauren.__file__: {origin}\n"
+        f"# lauren.__file__: {label}\n"
         f"# reference._di.__init__.py sha256: {di_sha}\n"
         f"# exit: {code}\n"
     )
@@ -196,7 +221,11 @@ def _has_discriminator(env: dict[str, str]) -> bool:
     distinguishes the two artifacts even if both parse identically.
     """
     completed = subprocess.run(
-        [sys.executable, "-c", "from lauren import _di; print(hasattr(_di, 'instance_lifecycle_hooks'))"],
+        [
+            sys.executable,
+            "-c",
+            "from lauren import _di; print(hasattr(_di, 'instance_lifecycle_hooks'))",
+        ],
         cwd=EVIDENCE,
         env=env,
         capture_output=True,
@@ -235,7 +264,9 @@ def verify_pin(reference: Path = REFERENCE) -> int:
             print("               so a passing run here does not by itself prove the pin.")
 
     has_hook = _has_discriminator(pinned_env)
-    print(f"  [{'ok ' if has_hook else 'FAIL'}] reference _di exposes instance_lifecycle_hooks: {has_hook}")
+    print(
+        f"  [{'ok ' if has_hook else 'FAIL'}] reference _di exposes instance_lifecycle_hooks: {has_hook}"
+    )
     ok = ok and has_hook
 
     bogus = reference / "no-such-root"
@@ -269,9 +300,12 @@ def stability(times: int) -> int:
                 if rel not in bad:
                     bad.append(rel)
                 for line in difflib.unified_diff(
-                    baseline[rel].splitlines(), transcript.splitlines(),
-                    fromfile=f"{rel} run 1", tofile=f"{rel} run {round_index + 1}",
-                    lineterm="", n=1,
+                    baseline[rel].splitlines(),
+                    transcript.splitlines(),
+                    fromfile=f"{rel} run 1",
+                    tofile=f"{rel} run {round_index + 1}",
+                    lineterm="",
+                    n=1,
                 ):
                     print(f"  {line}")
     print(f"  probes: {len(scripts)}  rounds: {times}")
@@ -284,12 +318,26 @@ def stability(times: int) -> int:
 
 
 def main(argv: list[str] | None = None) -> int:
-    parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
-    parser.add_argument("--check", action="store_true", help="fail when a transcript differs from the recorded one")
+    parser = argparse.ArgumentParser(
+        description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter
+    )
+    parser.add_argument(
+        "--check", action="store_true", help="fail when a transcript differs from the recorded one"
+    )
     parser.add_argument("--list", action="store_true", help="print the probe inventory and exit")
     parser.add_argument("--quiet", action="store_true", help="only print the audit summary")
-    parser.add_argument("--verify-pin", action="store_true", help="prove the reference pin binds and the refusal fires")
-    parser.add_argument("--stability", type=int, metavar="N", default=0, help="run every probe N times and fail on any difference")
+    parser.add_argument(
+        "--verify-pin",
+        action="store_true",
+        help="prove the reference pin binds and the refusal fires",
+    )
+    parser.add_argument(
+        "--stability",
+        type=int,
+        metavar="N",
+        default=0,
+        help="run every probe N times and fail on any difference",
+    )
     args = parser.parse_args(argv)
 
     if args.verify_pin:
@@ -301,13 +349,29 @@ def main(argv: list[str] | None = None) -> int:
     if args.list:
         for script in scripts:
             ids = sorted(set(ID_RE.findall(script.read_text())))
-            print(f"{script.relative_to(EVIDENCE).as_posix():24s} emits {len(ids):3d} ids  {' '.join(ids)}")
+            print(
+                f"{script.relative_to(EVIDENCE).as_posix():24s} emits {len(ids):3d} ids  {' '.join(ids)}"
+            )
         return 0
 
     origin, di_sha = reference_origin()
     print(f"reference: {origin}")
     print(f"_di/__init__.py sha256: {di_sha}")
     print(f"probes: {len(scripts)}\n")
+
+    dirty = reference_dirty_paths()
+    if dirty:
+        print(
+            f"REFUSING: the reference checkout has {dirty} uncommitted path(s), so it is a "
+            "different build from the pinned commit the transcripts record.\n"
+            f"  checkout: {REFERENCE}\n"
+            "  The `_di/__init__.py` sha256 above does not cover the rest of the tree.\n"
+            "  Clean it, or point PRDS_EVIDENCE_REFERENCE at a clean copy of the pin:\n"
+            "    git clone <reference> /tmp/ref-clean && git -C /tmp/ref-clean checkout <sha>\n"
+            "    PRDS_EVIDENCE_REFERENCE=/tmp/ref-clean python prds/evidence/run_all.py\n"
+        )
+        print("RESULT: FAIL")
+        return 1
 
     env = dict(os.environ, PYTHONPATH=str(REFERENCE), PYTHONHASHSEED="0")
     emitted: dict[str, set[str]] = {}
@@ -329,22 +393,18 @@ def main(argv: list[str] | None = None) -> int:
             if not destination.is_file():
                 drift.append(f"{rel.as_posix()} (no recorded transcript)")
             else:
-                # Compare with the reference root normalised on *both* sides: the
-                # recorded transcript carries the absolute path of the checkout the
-                # evidence was captured under, and CI clones it elsewhere.  The
-                # sha256 line beside it is compared verbatim, so a different
-                # reference build is still drift.
-                previous = normalise_reference(destination.read_text())
-                current = normalise_reference(recorded)
-                if previous != current:
+                previous = destination.read_text()
+                if previous != recorded:
                     drift.append(
                         f"{rel.as_posix()} -> {destination.relative_to(EVIDENCE).as_posix()}"
                     )
-                    diff.append((rel.as_posix(), previous, current))
+                    diff.append((rel.as_posix(), previous, recorded))
         else:
             destination.write_text(recorded)
         status = "ok " if code == 0 else "FAIL"
-        print(f"  [{status}] {rel.as_posix():22s} exit={code} ids={len(ids):3d} -> {destination.relative_to(EVIDENCE)}")
+        print(
+            f"  [{status}] {rel.as_posix():22s} exit={code} ids={len(ids):3d} -> {destination.relative_to(EVIDENCE)}"
+        )
         if code != 0:
             failures.append(f"{rel.as_posix()} exited {code}")
         if not ids:
@@ -384,8 +444,12 @@ def main(argv: list[str] | None = None) -> int:
         for name, previous, recorded in diff:
             print(f"\n  --- {name} (recorded vs this run) ---")
             for line in difflib.unified_diff(
-                previous.splitlines(), recorded.splitlines(),
-                fromfile="recorded", tofile="this run", lineterm="", n=2,
+                previous.splitlines(),
+                recorded.splitlines(),
+                fromfile="recorded",
+                tofile="this run",
+                lineterm="",
+                n=2,
             ):
                 print(f"  {line}")
     if failures:

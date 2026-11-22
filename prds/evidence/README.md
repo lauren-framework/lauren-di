@@ -35,10 +35,14 @@ The transcripts are recorded on the project's primary interpreter (`PRIMARY_PYTH
 quote CPython rather than `lauren` — `E-306c` records asyncio's message and `E-53`
 records how a function annotation is rendered — and both differ on 3.13, so the
 session refuses to run on any other interpreter rather than reporting phantom drift.
-The recorded `lauren.__file__` header line is compared with its value normalised
-(`<reference>`), because the absolute path is where the evidence was captured, not
-what it observed; every body line and the `_di/__init__.py` sha256 beside it are
-still compared verbatim.
+
+Each header names the reference root as `<reference>` and the sha256 of
+`_di/__init__.py`, so a transcript says *what* was measured rather than where this
+machine keeps it; a recorded transcript contains no absolute path. The runner also
+refuses a **dirty** reference checkout: uncommitted edits there are a different
+build (the sibling checkout here has one extra name in `lauren.__all__`, 295
+against the pin's 294) and the `_di` digest does not reveal them. Point
+`PRDS_EVIDENCE_REFERENCE` at a clean copy of the pin if your checkout is dirty.
 
 ## Reference pin
 
