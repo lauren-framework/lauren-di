@@ -53,7 +53,15 @@ per public symbol with a signature and a runnable example.
   `grant_visible`, `visible_in`, `explain`.
 - [Testing and overrides](docs/guides/testing.md): `OverridePlan`,
   `ProviderOverride`, `building_with`, the pytest fixture pattern.
+- [Recipes](docs/recipes.md): complete programs for the common jobs — configuration,
+  a request unit of work, per-build substitution, protocols, plugin lists.
 - [Errors](docs/errors.md): the full catalogue with stable `code` values.
+- [Troubleshooting](docs/troubleshooting.md): start from the error you are holding —
+  every `code`, its cause and the one-line fix.
+- [Async and concurrency](docs/concurrency.md): event loops, tasks, threads, the
+  request cache and what it does not promise.
+- [Design notes](docs/design.md): why the rules are load-bearing, what is deliberately
+  absent, and the five recorded divergences from the framework.
 - [Migration from lauren](docs/migration.md): symbol mapping and the marker renames.
 - [Reference](docs/reference.md): every exported name, with its signature.
 

@@ -47,8 +47,12 @@ nav:
       - Scopes and lifecycle: guides/scopes.md
       - Custom providers and tokens: guides/custom-providers.md
       - Testing and overrides: guides/testing.md
+  - Recipes: recipes.md
   - Module visibility: visibility.md
   - Errors: errors.md
+  - Troubleshooting: troubleshooting.md
+  - Async and concurrency: concurrency.md
+  - Design notes: design.md
   - Migration from lauren: migration.md
   - Reference: reference.md
 

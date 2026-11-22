@@ -139,8 +139,14 @@ Everything ships in this repository, and the same pages are published at
   `use_class`, `use_factory`, `use_existing`.
 - [Testing and overrides](docs/guides/testing.md) — per-build `OverridePlan`s,
   isolated by `ContextVar`.
+- [Recipes](docs/recipes.md) — complete programs for the jobs people actually wire.
 - [Visibility](docs/visibility.md) — opt-in module boundaries.
 - [Errors](docs/errors.md) — the catalogue behind `DIError`.
+- [Troubleshooting](docs/troubleshooting.md) — start from the error you are holding.
+- [Async and concurrency](docs/concurrency.md) — event loops, tasks, threads and what
+  the request cache does not promise.
+- [Design notes](docs/design.md) — why the rules are what they are, and the five
+  recorded divergences from the framework.
 - [Reference](docs/reference.md) — every public symbol, generated from
   `lauren_di.__all__`.
 - [Migrating from the framework](docs/migration.md) — moving a container out of

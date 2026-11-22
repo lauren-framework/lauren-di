@@ -1,76 +1,156 @@
 # Scopes and lifecycle
 
+## The three rules to remember
+
+1. **A consumer may only depend on something that lives at least as long as it
+   does.** `TRANSIENT < REQUEST < SINGLETON`; an edge that points the other way
+   is refused at `compile()` with `di_scope_violation`.
+2. **A scope caches one instance per provider, for a single resolution
+   sequence.** That is a sequencing rule, not a concurrency guarantee —
+   concurrent resolution is not de-duplicated, see
+   [concurrency](../concurrency.md).
+3. **A request-scoped instance resolved with no open scope is never torn
+   down.** Lax mode warns once per token; `strict_request_scope=True` refuses
+   instead.
+
 ## The three scopes
 
-`Scope` is an ordered `IntEnum`. The numeric order is load-bearing: the
-compiler rejects an edge whose consumer is **wider** than its dependency.
+`Scope` is an ordered `IntEnum`: `TRANSIENT = 0`, `REQUEST = 1`,
+`SINGLETON = 2`. The numeric order is load-bearing — the compiler compares the
+two values directly, so "wider" always means "higher number".
 
-| Scope | Value | Cached in | Meaning |
-|---|---|---|---|
-| `Scope.TRANSIENT` | 0 | nowhere | fresh instance per resolve |
-| `Scope.REQUEST` | 1 | the enclosing `ResolutionScope` | one per scope |
-| `Scope.SINGLETON` | 2 | the container | one per container |
+| Scope | Lives in | Reused | Torn down |
+| --- | --- | --- | --- |
+| `TRANSIENT` | nowhere | never — a fresh instance per resolution | never; the caller owns it |
+| `REQUEST` | the active `ResolutionScope`'s cache | once per scope, per resolution sequence | when that scope closes |
+| `SINGLETON` | the container | once per container | at `shutdown()` |
 
-```python
-from lauren_di import Scope
-
-assert Scope.TRANSIENT < Scope.REQUEST < Scope.SINGLETON
-assert Scope.REQUEST.label == "request"
-assert str(Scope.REQUEST) == "request"   # stable on every interpreter
-```
-
-`label` is the spelling every message and log line uses. `str()` is routed
-through it because `IntEnum.__str__` changed between Python versions.
+`TRANSIENT` and `SINGLETON` resolve on a bare container. `REQUEST` needs a
+cache to live in, which is what `container.scope()` provides.
 
 ## The narrowing rule
 
-The six consumer/dependency pairs, evaluated by `compile()`:
+An edge is legal when the dependency's scope is **greater than or equal to**
+the consumer's scope. The dependency has to outlive, or exactly match, the
+lifetime of the object holding it.
 
-| consumer ↓ dependency → | `TRANSIENT` | `REQUEST` | `SINGLETON` |
-|---|---|---|---|
-| `TRANSIENT` | ok | ok | ok |
-| `REQUEST` | ok | ok | ok |
-| `SINGLETON` | ok | **error** | ok |
+The rule exists because the alternative is a lifetime bug that no test
+catches: a `SINGLETON` consumer of a `TRANSIENT` dependency would capture one
+per-resolution object and keep it for the life of the process, and a `REQUEST`
+consumer of a `TRANSIENT` dependency would silently cache a value that was
+supposed to be per-resolution. Both are refused rather than "fixed up"
+silently.
 
-The rule in one sentence: *a consumer may not outlive the instance it
-receives.* A singleton outlives a request, so it may not depend on one.
+## The 3x3 matrix
 
+Rows are consumers, columns are dependencies.
+
+| consumer ↓ / dependency → | `TRANSIENT` | `REQUEST` | `SINGLETON` |
+| --- | --- | --- | --- |
+| `TRANSIENT` | allowed | allowed | allowed |
+| `REQUEST` | **refused** — `di_scope_violation` | allowed | allowed |
+| `SINGLETON` | **refused** — `di_scope_violation` | **refused** — `di_scope_violation` | allowed |
+
+Every refused cell raises the same class (`DIScopeViolationError`) with the
+same `code` (`di_scope_violation`); only the `detail` payload and the message
+differ:
+
+| Refused edge | Message | `detail["dependent_scope"]` | `detail["dependency_scope"]` |
+| --- | --- | --- | --- |
+| `REQUEST` ← `TRANSIENT` | `Request SessionStore depends on transient-scoped DbSession` | `request` | `transient` |
+| `SINGLETON` ← `TRANSIENT` | `Singleton ReportStore depends on transient-scoped DbSession` | `singleton` | `transient` |
+| `SINGLETON` ← `REQUEST` | `Singleton ReportStore depends on request-scoped Session` | `singleton` | `request` |
+
+All three are detected when the graph is compiled, before any instance is
+built. The allowed cells are not all equivalent in behaviour, even though all
+six compile:
+
+- a `TRANSIENT` consumer of anything gets a fresh instance per resolution, and
+  its dependency is resolved again each time;
+- a `REQUEST` consumer of a `REQUEST` dependency shares that dependency with
+  the rest of the scope;
+- a `SINGLETON` consumer of a `SINGLETON` dependency shares the container-wide
+  instance, and the dependency is built first.
+
+<!-- docs-contract: run -->
 ```python
-from lauren_di import DIScopeViolationError, DIContainer, Scope, injectable
+from lauren_di import DIContainer, DIScopeViolationError, Scope, injectable
 
 
-@injectable(scope=Scope.REQUEST)
-class Session:
-    pass
+@injectable(scope=Scope.TRANSIENT)
+class DbSession:
+    """Cheap per-resolution handle."""
 
 
 @injectable(scope=Scope.SINGLETON)
-class Wide:
-    session: Session
+class ReportStore:
+    db: DbSession
 
 
 container = DIContainer()
-container.register(Session)
-container.register(Wide)
+container.register(DbSession)
+container.register(ReportStore)
+
 try:
     container.compile()
 except DIScopeViolationError as exc:
-    assert exc.detail["dependent"] == "Wide"
+    assert exc.code == "di_scope_violation"
+    assert exc.detail["dependent"] == "ReportStore"
     assert exc.detail["dependent_scope"] == "singleton"
-    assert exc.detail["dependency"] == "Session"
-    assert exc.detail["dependency_scope"] == "request"
+    assert exc.detail["dependency_scope"] == "transient"
+    assert str(exc) == "Singleton ReportStore depends on transient-scoped DbSession"
 ```
+
+Widen the dependency and the same graph compiles:
+
+<!-- docs-contract: run -->
+```python
+from lauren_di import DIContainer, Scope, injectable
+
+
+@injectable(scope=Scope.SINGLETON)
+class DbSession:
+    """Container-wide connection pool."""
+
+
+@injectable(scope=Scope.SINGLETON)
+class ReportStore:
+    db: DbSession
+
+
+container = DIContainer()
+container.register(DbSession)
+container.register(ReportStore)
+container.compile()  # ok: singleton <- singleton
+```
+
+## Reading a scope violation
+
+`DIScopeViolationError` carries a `detail` mapping that is stable across
+messages, so assert on keys rather than on text:
+
+| Key | Value |
+| --- | --- |
+| `dependent` | class name of the consumer |
+| `dependent_scope` | `"transient"`, `"request"` or `"singleton"` |
+| `dependency_scope` | scope of the thing being injected |
+| `dependency` | class name of the dependency |
+| `alias` | present only when the edge was declared through an alias |
+
+The `code` is `di_scope_violation`; see [errors](../errors.md) for the full
+code table.
 
 ## Owning a request cache
 
-`Scope.REQUEST` instances live in a `ResolutionScope`. Create one with
-`async with container.scope() as scope:`; everything resolved through it shares
-one cache, and exiting the block tears those instances down.
+`container.scope()` opens a `ResolutionScope`. It is an async context manager
+and is also awaitable-free to close explicitly; leaving the block finalises
+everything created inside it.
 
+<!-- docs-contract: run -->
 ```python
 import asyncio
 
-from lauren_di import DIContainer, Scope, injectable
+from lauren_di import DIContainer, LifecycleViolationError, Scope, injectable
 
 
 @injectable(scope=Scope.REQUEST)
@@ -82,28 +162,69 @@ async def main() -> None:
     container = DIContainer()
     container.register(Session)
 
-    async with container.scope() as scope:
-        first = await scope.resolve(Session)
-        second = await scope.resolve(Session)
-        assert first is second          # one cache per scope
+    async with container.scope(values={str: "client.example"}) as scope:
+        session = await scope.resolve(Session)
+        assert await scope.resolve(Session) is session  # one instance, one sequence
+        assert await scope.resolve(str) == "client.example"
+        assert scope.values == {str: "client.example"}
+        assert scope.closed is False
 
-    async with container.scope() as other:
-        assert await other.resolve(Session) is not first
+    assert scope.closed is True
+    assert scope.errors == ()
+    assert await scope.close() == ()  # idempotent
+
+    try:
+        await scope.resolve(Session)
+    except LifecycleViolationError as exc:
+        assert exc.code == "lifecycle_violation"
+        assert exc.detail == {"token": "Session", "origin": "scope", "state": "closed"}
 
 
 asyncio.run(main())
 ```
 
-`container.resolve(T)` with no scope is the unscoped path. Its behaviour depends
-on `strict_request_scope`:
+What the scope owns:
 
-| `strict_request_scope` | resolving a `REQUEST` provider outside a scope |
-|---|---|
-| `False` (default) | logs a one-time warning, returns an **uncached** instance |
-| `True` | raises `DIScopeViolationError` with `reason="no_active_scope"` |
+| Member | Meaning |
+| --- | --- |
+| `resolve(token)` | resolve through the container, caching `REQUEST` results here |
+| `values` | extra per-scope values passed to `container.scope(values=...)` |
+| `closed` | `True` once the scope has been finalised |
+| `errors` | tuple of teardown failures collected while closing |
+| `close()` | finalise now; returns the same tuple as `errors` |
 
+`values` is a per-scope overlay: it is resolvable like a registration but is
+never written back to the container, so two scopes opened on the same
+container can carry different values.
+
+## Strict vs lax request-scope mode
+
+The container does not refuse a `REQUEST` resolution just because no scope is
+open — that would break module-level code and tests. Instead the default
+(**lax**) mode builds an instance, does not record it for teardown, and logs
+one warning per token:
+
+```
+Session is request-scoped but was resolved outside a request or `app.scope()`; it will never be torn down. Use `app.scope()` or enable `strict_request_scope=True`.
+```
+
+The warning fires once per provider token per container, so a hot path does
+not flood the log; the *instances* are not cached, so each such resolution
+constructs a fresh one and none of them are ever finalised.
+
+`strict_request_scope=True` turns the same situation into an error, which is
+what you want in production services:
+
+| Mode | Outside a scope | Inside a scope |
+| --- | --- | --- |
+| lax (default) | builds an instance, warns once, no teardown | cached in the scope, finalised on close |
+| `strict_request_scope=True` | `DIScopeViolationError` / `di_scope_violation` | cached in the scope, finalised on close |
+
+<!-- docs-contract: run -->
 ```python
-from lauren_di import DIScopeViolationError, DIContainer, Scope, injectable
+import asyncio
+
+from lauren_di import DIContainer, DIScopeViolationError, Scope, injectable
 
 
 @injectable(scope=Scope.REQUEST)
@@ -111,74 +232,193 @@ class Session:
     pass
 
 
-strict = DIContainer(strict_request_scope=True)
-strict.register(Session)
+async def main() -> None:
+    lax = DIContainer()
+    lax.register(Session)
+    first = await lax.resolve(Session)  # logs the warning above
+    second = await lax.resolve(Session)
+    assert first is not second  # nothing caches it, nothing tears it down
 
-import asyncio
+    strict = DIContainer(strict_request_scope=True)
+    strict.register(Session)
+    try:
+        await strict.resolve(Session)
+    except DIScopeViolationError as exc:
+        assert exc.code == "di_scope_violation"
+        assert exc.detail["reason"] == "no_active_scope"
+
+    async with strict.scope() as scope:
+        assert await scope.resolve(Session) is await scope.resolve(Session)
 
 
-def check() -> None:
-    async def main() -> None:
-        try:
-            await strict.resolve(Session)
-        except DIScopeViolationError as exc:
-            assert exc.detail["reason"] == "no_active_scope"
-
-    asyncio.run(main())
-
-
-check()
+asyncio.run(main())
 ```
 
-Default (lax) mode still resolves, but the instance is never cached and never
-reaches a teardown — which is why strict mode exists.
+Strict mode never affects resolution *inside* a scope: `detail["reason"]` is
+always `"no_active_scope"`, so a strict failure always means "you forgot to
+open a scope", never "the graph is wrong".
 
-## Lifecycle hooks
+## Nested scopes
 
-`@post_construct` runs after an instance is built; `@pre_destruct` runs before
-it is discarded. Both are collected across the MRO: **bases first on startup,
-subclasses first on teardown**.
+Scopes nest, and a nested scope is a sibling of its parent, not a child: it
+shares the container's singletons, but it starts with an empty request cache.
 
-Hooks are found by walking the MRO for distinct method names, so give each
-class its own method name. Reusing a subclass method name silently hides the
-base hook.
+| Thing | Inherited by a nested scope? |
+| --- | --- |
+| `SINGLETON` instances | yes — they live on the container |
+| `REQUEST` instances of the parent scope | no — each scope has its own cache |
+| parent's `values` | no — pass them again if the inner scope needs them |
 
+<!-- docs-contract: run -->
 ```python
 import asyncio
 
-from lauren_di import DIContainer, injectable, post_construct, pre_destruct
+from lauren_di import DIContainer, Scope, injectable
+
+
+@injectable(scope=Scope.REQUEST)
+class Session:
+    pass
+
+
+@injectable(scope=Scope.SINGLETON)
+class Settings:
+    pass
+
+
+async def main() -> None:
+    container = DIContainer()
+    container.register(Session)
+    container.register(Settings)
+
+    async with container.scope() as outer:
+        outer_session = await outer.resolve(Session)
+        settings = await outer.resolve(Settings)
+
+        async with container.scope() as inner:
+            assert await inner.resolve(Session) is not outer_session
+            assert await inner.resolve(Settings) is settings
+
+        assert inner.closed is True
+        assert outer.closed is False
+        assert await outer.resolve(Session) is outer_session
+
+
+asyncio.run(main())
+```
+
+Closing the inner scope finalises only what the inner scope created; the outer
+scope stays open and keeps its own instances.
+
+## Aliases are transparent to scope validation
+
+An alias registered with `container.register_alias(token, existing)` has no
+scope of its own. The compiler follows the alias to its terminal target and
+judges the edge by *that* provider's scope, then records the alias in the
+detail so the error still names what you wrote.
+
+<!-- docs-contract: run -->
+```python
+from lauren_di import DIContainer, DIScopeViolationError, Scope, injectable
+
+
+class SessionPort:
+    """Interface token; the concrete class is bound by alias."""
+
+
+@injectable(scope=Scope.REQUEST)
+class Session:
+    pass
+
+
+@injectable(scope=Scope.SINGLETON)
+class SessionStore:
+    port: SessionPort
+
+
+container = DIContainer()
+container.register(Session)
+container.register_alias(SessionPort, Session)
+container.register(SessionStore)
+
+try:
+    container.compile()
+except DIScopeViolationError as exc:
+    assert exc.code == "di_scope_violation"
+    assert exc.detail["dependency_scope"] == "request"
+    assert exc.detail["alias"] == "SessionPort"
+```
+
+Aliases that do not terminate cleanly fail earlier, with their own codes:
+
+| Situation | Error | `code` |
+| --- | --- | --- |
+| alias points at something unregistered | `MissingProviderError` | `missing_provider` |
+| aliases form a loop (`A -> B -> A`) | `CircularDependencyError` | `circular_dependency` |
+
+An alias to a `TRANSIENT` provider is refused from a `REQUEST` or `SINGLETON`
+consumer for the same reason the direct edge is refused — the alias adds no
+leniency.
+
+## Using a closed scope
+
+A `ResolutionScope` is single-use. After `close()` (or after the `async with`
+block exits), every resolution through it raises `LifecycleViolationError`
+with `code == "lifecycle_violation"` and
+`detail == {"token": ..., "origin": "scope", "state": "closed"}` — including
+`TRANSIENT` tokens and `values` entries, which never needed the cache.
+
+`close()` is idempotent and does not raise for a failing finaliser: failures
+are collected into the tuple it returns, which is the same tuple as
+`scope.errors`. Resolve through a fresh scope, or through the container, after
+a scope is gone.
+
+## Lifecycle hooks
+
+Finalisation is driven by two decorators, `post_construct` and `pre_destruct`.
+They run in dependency order on the way up and in reverse on the way down.
+
+<!-- docs-contract: run -->
+```python
+import asyncio
+
+from lauren_di import DIContainer, Scope, injectable, post_construct, pre_destruct
 
 order: list[str] = []
 
 
-@injectable()
+@injectable(scope=Scope.SINGLETON)
 class Base:
     @post_construct
-    def base_up(self) -> None:
+    def up(self) -> None:
         order.append("base.up")
 
     @pre_destruct
-    def base_down(self) -> None:
+    def down(self) -> None:
         order.append("base.down")
 
 
-@injectable()
-class Child(Base):
+@injectable(scope=Scope.SINGLETON)
+class Child:
+    base: Base
+
     @post_construct
-    def child_up(self) -> None:
+    def up(self) -> None:
         order.append("child.up")
 
     @pre_destruct
-    def child_down(self) -> None:
+    def down(self) -> None:
         order.append("child.down")
 
 
 async def main() -> None:
     container = DIContainer()
+    container.register(Base)
     container.register(Child)
+
     await container.startup()
-    await container.resolve(Child)
     assert order == ["base.up", "child.up"]
+
     await container.shutdown()
     assert order == ["base.up", "child.up", "child.down", "base.down"]
 
@@ -186,43 +426,44 @@ async def main() -> None:
 asyncio.run(main())
 ```
 
-`startup()` fires `@post_construct` for **every** scope. There is no framework
-scheduler here: a singleton is constructed exactly once, so firing at
-construction is firing exactly once. `@post_construct` on a `REQUEST` provider
-fires once per scope, when that instance is created.
+The same hooks run for request-scoped providers, but at scope close instead of
+container shutdown — that is the whole point of owning a scope.
 
 ## Teardown order and error containment
 
-`shutdown()` and `ResolutionScope.close()` tear down in **reverse creation
-order** — the newest instance goes first. A failing `@pre_destruct` does not
-abort the rest: each failure is collected into a `DestructError` and the
-remaining instances are still torn down. Both calls return the errors.
+Teardown is strict LIFO over the resolution order: the most recently created
+instance is finalised first, so a consumer always outlives its dependencies.
 
-```python
-import asyncio
+| Boundary | Created | Finalised |
+| --- | --- | --- |
+| `container.startup()` / `shutdown()` | singletons, dependency-first | reverse creation order |
+| `scope.close()` | request instances, dependency-first | reverse creation order |
 
-from lauren_di import DestructError, DIContainer, injectable, pre_destruct
+A `pre_destruct` that raises does not abort the rest of the teardown: the
+failure is collected, teardown continues, and the collected failures are
+returned by `close()` (container shutdown and scope close behave the same).
+`scope.errors` exposes them after the fact; the wrapped exception type is
+`DestructError`.
 
+Because a failing finaliser cannot roll back the instances already built,
+treat `errors` as a signal to log and, in tests, to fail loudly — see
+[troubleshooting](../troubleshooting.md).
 
-@injectable()
-class Fragile:
-    @pre_destruct
-    async def fail(self) -> None:
-        raise RuntimeError("boom")
+## What the cache does not promise
 
+`REQUEST` caching is scoped to one resolution sequence. Two coroutines that
+resolve the same request-scoped provider through the same `ResolutionScope`
+concurrently through an async factory can each build an instance; two
+concurrent container-level resolutions of one singleton through an async
+factory can do the same. Both limits are measured, with numbers, in
+[concurrency](../concurrency.md). Do not read "one instance per scope" as a
+thread-safety or de-duplication guarantee.
 
-async def main() -> None:
-    container = DIContainer()
-    container.register(Fragile)
-    await container.startup()
-    await container.resolve(Fragile)
-    errors = await container.shutdown()
-    assert len(errors) == 1
-    assert isinstance(errors[0], DestructError)
+## See also
 
-
-asyncio.run(main())
-```
-
-Inspect `DestructError.detail` for which hook failed and at which stage; the
-instance is discarded either way.
+- [providers](providers.md) — the registration kinds that produce these scopes.
+- [errors](../errors.md) — codes and `detail` payloads.
+- [concurrency](../concurrency.md) — what the caches do and do not guarantee
+  under parallel resolution.
+- [troubleshooting](../troubleshooting.md) — diagnosing leaked or
+  never-torn-down instances.

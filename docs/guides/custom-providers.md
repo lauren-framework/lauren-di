@@ -5,247 +5,198 @@ four NestJS-style recipes plus a first-class token type.
 
 ## `Token`
 
-A `Token` is an opaque, hashable, debuggable identifier for a binding that is
-not a type.
+A `Token` is an opaque, hashable key for a binding that has no type to annotate.
 
-```python
+Tokens match by **identity**, not by name: two `Token("db")` calls are two
+unrelated keys, and the string is a label for errors and `explain`, not a match key.
+
+| form | matches | hash | use it when |
+| --- | --- | --- | --- |
+| `Token("db")` | that object only | `id()` | one module owns the binding |
+| `Token("db", unique=False)` | any instance with that name | the name | two modules must agree on a key |
+
+```python run
 from lauren_di import Token
 
-DB_URL = Token("db_url")
-assert DB_URL.name == "db_url"
-
-# Tokens are unique by identity unless you opt out.
-assert Token("x") != Token("x")
-assert Token("x", unique=False) == Token("x", unique=False)
+assert Token("db") != Token("db")
+assert Token("db", unique=False) == Token("db", unique=False)
+assert repr(Token("db")) == "Token('db', unique)"
 ```
 
-`unique=False` makes two tokens with the same name compare equal, which is what
-you want when two modules must agree on a key without importing a shared
-constant first. It is opt-in because accidental collisions are silent.
+`unique=False` is the opt-out: those tokens compare and hash by name, so an
+independently built instance is the same key. That makes the name load-bearing — a
+typo is a different binding, and two unrelated `Token("settings", unique=False)`
+collide — so keep it for seams you do not own (plugins, test helpers, generated
+code) and share a module-level constant everywhere else.
 
 ## `Inject` — spelling a non-type token in an annotation
 
-`Inject(token)` is `Annotated` metadata. It never appears at the top level of a
-parameter; it is always the second element of `Annotated[T, ...]`.
+Resolution defaults to the parameter's type. When the key is not a type, put
+`Inject(token)` inside `Annotated[...]`, on an `__init__` parameter or a class field.
 
-```python
+```python run
 from typing import Annotated
 
 from lauren_di import DIContainer, Inject, Token, injectable, use_value
 
 DB_URL = Token("db_url")
 
+@injectable()
+class Repo:
+    url: Annotated[str, Inject(DB_URL)]
 
 @injectable()
 class Client:
     def __init__(self, url: Annotated[str, Inject(DB_URL)]) -> None:
         self.url = url
 
-
 container = DIContainer()
 container.register_custom(use_value(provide=DB_URL, value="postgres://x"))
+container.register(Repo)
 container.register(Client)
-```
+container.compile()
 
-Class-body fields work the same way:
-
-```python
-from typing import Annotated
-
-from lauren_di import Inject, Token, injectable
-
-DB_URL = Token("db_url")
-
-
-@injectable()
-class Repo:
-    url: Annotated[str, Inject(DB_URL)]
+assert (await container.resolve(Repo)).url == "postgres://x"
+assert (await container.resolve(Client)).url == "postgres://x"
 ```
 
 !!! warning "A default value disables injection"
-    `def __init__(self, url=Inject(DB_URL))` does **not** inject. The container
-    sees a parameter with a default and leaves it alone. `Inject` must sit
-    inside `Annotated`.
+    `def __init__(self, url=Inject(DB_URL))` does **not** inject; the parameter
+    keeps its default. The marker belongs in the annotation, not the default slot.
 
 ## `Depends` — a spelling alias
 
-`Depends[T]` evaluates to `T`. There is no marker object and no runtime
-behaviour; it exists for readers coming from FastAPI.
+`Depends[X]` is `X` itself, subscripted, so a dependency can be spelled in the type
+position lauren core emits. It resolves exactly like the bare type and adds nothing
+at runtime.
 
-```python
+```python run
 from lauren_di import Depends
-
 
 class Repo:
     pass
 
-
 assert Depends[Repo] is Repo
 ```
 
+It cannot name a `Token` or a string — `Inject` inside `Annotated` is the spelling
+for those — and it does not belong in annotation position, where the container
+reads the type itself or `Annotated[...]`.
+
 ## The four recipes
 
-Each helper returns a frozen `CustomProvider` record. You hand it to
-`container.register_custom(...)`, which lowers it into a normal `Provider` row.
+Each helper returns a frozen `CustomProvider`; `register_custom` lowers it to a row.
 
-### `use_value` — an already-built object
+| helper | payload | resolves to |
+| --- | --- | --- |
+| `use_value` | `value=` | the object itself |
+| `use_class` | `use=`, `scope=` | an instance built by the container |
+| `use_factory` | `factory=`, `injects=()` | whatever the factory returns |
+| `use_existing` | `existing=` | what the other token resolves to |
 
-```python
-from lauren_di import DIContainer, use_value
+`injects` is the positional argument list handed to the factory, resolved left to
+right: a factory has no signature to annotate, so its dependencies are named there.
 
-container = DIContainer()
-container.register_custom(use_value(provide="answer", value=42))
-```
+```python run
+from lauren_di import DIContainer, Scope, Token, use_class, use_value
 
-### `use_class` — bind a token to a class
-
-```python
-from lauren_di import DIContainer, Scope, use_class
-
+SETTINGS = Token("settings")
+GREETER = Token("greeter")
 
 class Greeter:
     def greet(self) -> str:
         return "hi"
 
-
 container = DIContainer()
-container.register_custom(use_class(provide="greeter", use=Greeter, scope=Scope.TRANSIENT))
+container.register_custom(use_value(provide=SETTINGS, value={"retries": 3}))
+container.register_custom(use_class(provide=GREETER, use=Greeter, scope=Scope.TRANSIENT))
+container.compile()
+
+assert await container.resolve(SETTINGS) == {"retries": 3}
+assert (await container.resolve(GREETER)).greet() == "hi"
+assert (await container.resolve(GREETER)) is not (await container.resolve(GREETER))
 ```
 
-### `use_factory` — call a callable with injected arguments
+### Generator factories are teardown hooks
 
-```python
-from lauren_di import DIContainer, use_factory
+A factory that is a generator — `async` or not — is a resource factory: the first
+`yield`ed value is the instance and the rest of the body runs at
+`await container.shutdown()`. Extra `yield`s are ignored.
+
+```python run
+from lauren_di import DIContainer, Token, use_factory
+
+CONNECTION = Token("connection")
+events: list[str] = []
+
+def connect():
+    events.append("open")
+    yield "conn"
+    events.append("close")
 
 container = DIContainer()
-container.register_custom(
-    use_factory(provide="greeter", factory=lambda: "hi", injects=())
-)
+container.register_custom(use_factory(provide=CONNECTION, factory=connect))
+container.compile()
+
+assert await container.resolve(CONNECTION) == "conn"
+assert events == ["open"]
+
+await container.shutdown()
+assert events == ["open", "close"]
 ```
 
-`injects` is the positional argument list, resolved left to right. Wrap an entry
-in `OptionalDep(token)` to receive `None` instead of a `MissingProviderError`
-when nothing is bound:
+### Aliases forward, they do not copy
 
-```python
-from lauren_di import DIContainer, OptionalDep, use_factory
+`use_existing(provide="cache", existing=Cache)` resolves to whatever `existing`
+resolves to, in the target's own scope: alias a singleton and both names share one
+instance, alias a `Scope.TRANSIENT` token and each resolution builds a new one; an
+alias may also point at another alias.
 
+```python run
+from lauren_di import DIContainer, Scope, injectable, use_existing
 
-class Clock:
+@injectable()
+class Cache:
     pass
 
-
-def build(clock, logger=None):
-    return (clock, logger)
-
-
-container = DIContainer()
-container.register_class(Clock, Clock)
-container.register_custom(
-    use_factory(provide="built", factory=build, injects=(Clock, OptionalDep("LOGGER")))
-)
-```
-
-`OptionalDep` is only meaningful inside an `injects` list. It is not an
-annotation and cannot be used in `Annotated`.
-
-A generator factory is driven the same way a generator provider is: the code
-before `yield` is setup, the yielded value is the dependency, and the code after
-`yield` runs when the owning lifetime ends.
-
-```python
-from collections.abc import Iterator
-
-from lauren_di import DIContainer, use_factory
-
-
-def pool() -> Iterator[str]:
-    connection = "connected"  # setup: runs during the first resolve
-    try:
-        yield connection  # the dependency value
-    finally:
-        connection = ""  # teardown: runs at shutdown() / scope exit
-
-
-container = DIContainer()
-container.register_custom(use_factory(provide="POOL", factory=pool))
-```
-
-A generator factory cannot be `Scope.TRANSIENT` — a transient instance is never
-tracked, so its teardown could never run; registration raises
-`LifecycleConfigError`, exactly as it does for an `@injectable()` generator
-provider.
-
-### `use_existing` — an alias to another token
-
-```python
-from lauren_di import DIContainer, use_existing
-
-
-class Greeter:
+@injectable(scope=Scope.TRANSIENT)
+class Job:
     pass
 
-
 container = DIContainer()
-container.register(Greeter)
-container.register_custom(use_existing(provide="greeter", existing=Greeter))
+container.register(Cache)
+container.register(Job)
+container.register_custom(use_existing(provide="cache", existing=Cache))
+container.register_custom(use_existing(provide="cache_alias", existing="cache"))
+container.register_custom(use_existing(provide="job", existing=Job))
+container.compile()
+
+assert await container.resolve("cache_alias") is await container.resolve(Cache)
+assert await container.resolve("job") is not await container.resolve("job")
 ```
 
-Aliases chain, and `compile()` rejects a chain that loops back on itself with
-`CircularDependencyError`. Self-aliasing (`token` → `token`) is rejected at
-registration time.
+An alias to an unregistered token fails at resolve time with `MissingProviderError`
+("Alias x -> nope points at an unknown token"); an alias cycle fails with
+`CircularDependencyError` ("Circular dependency: a -> b -> a").
 
 ## `CustomProvider`
 
-The record every recipe lowers into. Useful when you build one yourself or
-assert on it in a test.
+The record is frozen: `provide` (the token), `kind` (`"value"`, `"class"`,
+`"factory"`, `"existing"`), the payload field matching that kind (`value`,
+`use_class`, `factory` with `inject`, `existing`), plus `name` and `multi`. Kind and
+payload are checked when you build it, so a malformed recipe fails before
+registration.
 
-```python
-from lauren_di import CustomProvider, Scope
+```python run
+from lauren_di import use_value
 
-provider = CustomProvider(provide="answer", kind="value", value=42, scope=Scope.SINGLETON)
-assert provider.kind == "value"
-assert provider.multi is False
+provider = use_value(provide="db_url", value="postgres://x")
+
+assert (provider.kind, provider.provide) == ("value", "db_url")
 ```
-
-| field | meaning |
-|---|---|
-| `provide` | the lookup key |
-| `kind` | `"value"`, `"class"`, `"factory"`, `"existing"` |
-| `value` / `use_class` / `factory` | the payload for that kind |
-| `inject` | positional tokens for `factory` |
-| `existing` | the alias target for `"existing"` |
-| `scope` | lifetime, default `SINGLETON` |
-| `multi` | collect into `list[T]` instead of replacing |
-| `name` | human-readable label used in messages |
 
 ## Multi-bindings
 
-`multi=True` accumulates rows under one token. Resolving the token returns the
-**last** row, while resolving `list[T]` returns all of them in registration
-order.
-
-```python
-import asyncio
-
-from lauren_di import DIContainer, injectable
-
-
-@injectable(multi=True)
-class Plugin:
-    def __init__(self, name: str = "p") -> None:
-        self.name = name
-
-
-async def main() -> None:
-    container = DIContainer()
-    container.register(Plugin)
-    plugins = await container.resolve(list[Plugin])
-    assert len(plugins) == 1
-
-
-asyncio.run(main())
-```
-
-Binding a non-multi token twice raises `DuplicateBindingError` at registration
-time. Binding a `list[T]` that has no `multi` rows resolves to `[]`.
+`multi=True` accumulates rows under one token instead of replacing them: resolving
+the token returns the rows as a list in registration order, `list[token]` resolves to
+the same list, and sorting is yours to do if a consumer needs a priority.

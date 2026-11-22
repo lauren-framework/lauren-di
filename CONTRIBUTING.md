@@ -2,7 +2,43 @@
 
 `lauren-di` is a small library with a deliberately narrow scope, so most of the work
 in a contribution is deciding *whether* it belongs here. This page is that decision
-procedure plus the gates a patch has to pass.
+procedure plus the mechanics of landing a change.
+
+## Before you start
+
+The library is a standalone dependency-injection container: explicit registration,
+typed scopes, lifecycle hooks, module visibility. Standard library only, Python 3.10+.
+It never imports `lauren`, and nothing about it requires `lauren` to import it.
+`docs/index.md` states the whole contract on one page.
+
+Two rules are absolute. A pull request that breaks either one is not negotiated:
+
+| Rule | What it means here |
+| --- | --- |
+| **No runtime dependencies** | `dependencies = []` in `pyproject.toml` stays empty. Everything under `[project.optional-dependencies]` is contributor-only: the `dev` extra is test and type-check tooling, not something an application installs. |
+| **Never weaken a gate** | Green means the gate passed exactly as written. No lowered `fail_under`, no deleted assertion, no blanket `# noqa`, no narrowed `mypy` scope, no skipped docs check. |
+
+### Set up
+
+```bash
+python -m pip install --upgrade pip
+python -m pip install -e ".[dev]"
+python -m pip install nox
+nox -s tests
+```
+
+`nox` builds its own virtualenvs from `noxfile.py`, so the editable install is only
+there for your editor and for running a script directly. Two shortcuts that skip the
+matrix entirely:
+
+```bash
+python scripts/check_docs_contract.py                     # the docs contract, no nox
+python -m pytest tests/docs/test_depends_spelling.py -q   # the `Depends[X]` spelling rule
+```
+
+Read the PRD you are changing in `prds/` before you write code, and check
+`../lauren-framework` whenever the change touches shared behaviour: the two halves of
+the framework must agree, and a change that only lands here is half a change.
 
 ## The boundary test: "is this DI?"
 
@@ -83,6 +119,11 @@ Other gates worth knowing:
 | `nox -s typecheck` / `typing` | `mypy --strict` and `pyright` strict over the public surface |
 | `nox -s coverage` | branch coverage against `fail_under` in `pyproject.toml` |
 | `nox -s prds` | `prds/check_consistency.py`: index parity, the ten-section template, every relative link, every `PRD 0N §x` cross-reference, the decision register, symbol/default/scope agreement, the no-web-framework rule, and the baseline's owner references |
+| `nox -s tests` | the whole suite on every supported interpreter in one pass |
+| `nox -s docs` | `mkdocs build --strict`: a broken link or a page missing from `nav` fails the build |
+| `nox -s docs_contract` | `scripts/check_docs_contract.py`: `nav` completeness in both directions, every relative link, every fenced `python` block compiles, every `run` block executes, every `__all__` name has an API section, `docs/reference.md` is current |
+| `nox -s llms_check` | `scripts/check_llms_full.py`: `llms-full.txt` and the `llms.txt` index still match the public surface |
+| `nox -s parity` | the same behaviour through `lauren`, or the library half alone with `--allow-missing-reference` |
 | `nox -s build build_check` | the wheel builds, `twine check --strict` passes |
 
 **Never weaken a gate to get green.** No lowering `fail_under`, no deleting or
@@ -105,22 +146,85 @@ this rule is absolute.
 
 ## Documentation changes
 
-The §9 layout is:
+The documentation is read by humans *and* by coding agents as ground truth, so a code
+block that does not run is a bug. The corpus:
 
-```
-docs/index.md              what the library is and is not
-docs/getting-started.md    install, first container, first provider, first scope
-docs/guides/providers.md   constructor, field and function providers
-docs/guides/scopes.md      scope matrix, strict mode, teardown
-docs/guides/custom-providers.md   the four recipes and list[T]
-docs/guides/testing.md     overrides and fixtures
-docs/reference.md          every exported name, generated from `__all__`
-```
+| Page | Answers |
+| --- | --- |
+| `docs/index.md` | what the library is and is not |
+| `docs/getting-started.md` | install, first container, first provider, first scope |
+| `docs/guides/providers.md` | registration forms, factories, `Depends[X]` |
+| `docs/guides/scopes.md` | the scope ladder, and when to pick one |
+| `docs/guides/custom-providers.md` | writing a provider that is not a plain class |
+| `docs/guides/testing.md` | overrides, isolation, what to assert |
+| `docs/recipes.md` | task-shaped examples, one per page section |
+| `docs/visibility.md` | what a module exports to its importers |
+| `docs/errors.md` | the error catalogue: class, code, cause |
+| `docs/troubleshooting.md` | symptom, cause, fix |
+| `docs/concurrency.md` | thread and task safety of resolution |
+| `docs/design.md` | why the container is shaped this way |
+| `docs/migration.md` | moving off another container |
+| `docs/reference.md` | the API reference, generated from the source |
 
-When you add a page, add it to `mkdocs.yml`'s `nav` in the same change — an orphaned
-page fails `docs_contract`. When you rename one, update the nav, `README.md`,
-`llms.txt`, the issue template's file list and every in-page cross-reference in the
-same change.
+Rules for a documentation change:
+
+- **Generated pages are never hand-edited.** `docs/reference.md` comes from
+  `scripts/build_reference.py` and `llms-full.txt` from `scripts/build_llms_full.py`.
+  Regenerate both and let the diff ride along in the same commit.
+- **Add the page to `nav` in `mkdocs.yml` in the same commit.** `nox -s docs_contract`
+  checks completeness in both directions, so an orphan page and a dead nav entry both
+  fail.
+- **Every fenced `python` block must compile on its own.** A block tagged `run` is
+  executed, so it must also be correct at runtime, with no imports from `lauren`.
+- **Relative links resolve from the repository root**: `docs/recipes.md`,
+  `prds/01-product-definition-and-public-api.md`, `noxfile.py`.
+- **The quickstart is one block, quoted byte-for-byte.** The same text lives in
+  `README.md`, `docs/getting-started.md` and `tests/integration/test_quickstart.py`;
+  edit one copy and you edit all three.
+- **Use the documented annotation spelling.** `Depends[X]` belongs in annotation
+  position; `tests/docs/test_depends_spelling.py` fails on the parameter form that
+  looks like it but is not.
+
+## Adding a public symbol
+
+One symbol means five edits, all in the same commit:
+
+1. Implement it in the private module under `lauren_di/` that owns the concept.
+2. Export it from `lauren_di/__init__.py` and add it to `__all__` in sorted order
+   (`RUF022` enforces the sort).
+3. Give it a docstring: the first line becomes the summary in the API reference.
+4. Regenerate the derived artefacts: `python scripts/build_reference.py`, then
+   `python scripts/build_llms_full.py`.
+5. Add the symbol to the table in `prds/01-product-definition-and-public-api.md`.
+
+Then run `nox -s lint typecheck docs_contract llms_check` before you push. A public
+name with no API section fails `docs_contract`, not review.
+
+## Adding an error code
+
+An error is one class, one code string, two doc rows and a PRD row:
+
+1. Subclass `DIError` in `lauren_di/_errors.py` with a lowercase snake-case `code`
+   (`missing_provider`, `circular_dependency`) and a docstring stating when it is
+   raised. Export it and regenerate the reference as above.
+2. Add a row to the catalogue in `docs/errors.md`: class, `code`, cause.
+3. Add a row to `docs/troubleshooting.md`: symptom, cause, fix, written for someone
+   holding a traceback and no theory.
+4. Record the code in the error model, PRD 05.
+5. Test the `code`, not only the message: the code is the contract.
+
+## Review checklist
+
+- [ ] All ten boundary questions answer no.
+- [ ] `dependencies = []` is still empty and nothing under `lauren_di/` imports
+      outside the standard library.
+- [ ] `nox -s ci` is green, and no gate was relaxed to get there.
+- [ ] New public names are in `__all__`, sorted, and in the PRD symbol table.
+- [ ] `docs/reference.md` and `llms-full.txt` are regenerated, never hand-edited.
+- [ ] New pages are in `nav`; every relative link resolves from the repository root.
+- [ ] A new error code has its `docs/errors.md` row, `docs/troubleshooting.md` row and
+      PRD 05 row.
+- [ ] Parity with `../lauren-framework` checked whenever behaviour changed.
 
 ## Licence
 

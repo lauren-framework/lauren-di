@@ -48,8 +48,12 @@ without becoming a dependency of this library.
 - [Scopes and lifecycle](guides/scopes.md) — the part that bites.
 - [Custom providers and tokens](guides/custom-providers.md) — non-class bindings and `list[T]`.
 - [Testing and overrides](guides/testing.md) — per-build substitution and fixtures.
+- [Recipes](recipes.md) — task-shaped, complete wiring for common jobs.
 - [Module visibility](visibility.md) — opt-in encapsulation.
 - [Errors](errors.md) — the full catalogue.
+- [Troubleshooting](troubleshooting.md) — start from the error you are holding.
+- [Async and concurrency](concurrency.md) — event loops, tasks, threads and lifetime.
+- [Design notes](design.md) — why the rules are what they are.
 - [Migration from lauren](migration.md) — coming from the framework.
 
 **Reference**
