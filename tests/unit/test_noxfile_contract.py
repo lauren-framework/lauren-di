@@ -23,8 +23,11 @@ graph of the library itself.
 
 from __future__ import annotations
 
+import json
 import pathlib
 import re
+import subprocess
+import sys
 from typing import Any
 
 import pytest
@@ -493,6 +496,17 @@ def test_the_matrix_job_runs_one_interpreter_per_job() -> None:
 # ---------------------------------------------------------------------------
 # The PRD corpus gate: a check nobody runs is not a check
 # ---------------------------------------------------------------------------
+ROOT = NOXFILE.parent
+PRD_DIR = ROOT / "prds"
+PRD_CHECK = PRD_DIR / "check_consistency.py"
+#: The throwaway probes behind the ``E-nnn`` citations, plus their transcripts.
+#: Cited evidence, not scratch: excluded from ruff, never reformatted.
+EVIDENCE_DIR = PRD_DIR / "evidence"
+#: The recorded audit of those ids — what is cited, what each probe emits, and
+#: the difference. ``prds/evidence/run_all.py`` writes it and fails on drift.
+IDS_JSON = EVIDENCE_DIR / "output" / "ids.json"
+
+
 def test_the_prds_session_runs_the_consistency_check(noxfile: Any) -> None:
     """``nox -s prds`` must actually execute ``prds/check_consistency.py``.
 
@@ -538,6 +552,53 @@ def test_the_prds_gate_is_wired_into_both_the_aggregator_and_ci(noxfile: Any) ->
     assert jobs, "no CI job body contains `nox -s prds`"
 
 
+def ruff_config() -> str:
+    """The body of the ``[tool.ruff]`` table in ``pyproject.toml``.
+
+    Scoped rather than read whole: ``[tool.pyright]`` legitimately declares its
+    own ``exclude``, and a bare ``^exclude`` search over the file would find it.
+    """
+    lines = PYPROJECT.read_text(encoding="utf-8").splitlines()
+    assert "[tool.ruff]" in lines, "pyproject.toml has no [tool.ruff] table"
+    start = lines.index("[tool.ruff]")
+    end = next(
+        (index for index in range(start + 1, len(lines)) if lines[index].startswith("[")),
+        len(lines),
+    )
+    return "\n".join(lines[start + 1 : end])
+
+
+def extend_exclude(config: str) -> list[str]:
+    """The string entries of ``[tool.ruff] extend-exclude``, in order.
+
+    Only quoted entries are returned, so the prose comments above them — which
+    name ``prds/evidence`` too — cannot satisfy an assertion on their own.
+    """
+    match = re.search(r"^extend-exclude\s*=\s*\[(?P<body>.*?)^\]", config, re.MULTILINE | re.DOTALL)
+    assert match is not None, "[tool.ruff] declares no `extend-exclude` list"
+    return re.findall(r'"([^"]+)"', match.group("body"))
+
+
+def _ruff(*args: str) -> subprocess.CompletedProcess[str]:
+    """Run the ruff that ``nox -s lint`` installs, against the repository.
+
+    ``ruff`` arrives with the ``dev`` extra, so the checker this test trusts is
+    the one the gate runs, not whatever happens to be on ``PATH``. The assertions
+    are about *which files* ruff resolves and whether it rejects the probes —
+    never a violation count — so a release that adds a rule cannot redden this
+    test, and the pinned version in ``noxfile.py`` stays the one place a version
+    is stated.
+    """
+    return subprocess.run(
+        [sys.executable, "-m", "ruff", *args],
+        cwd=ROOT,
+        capture_output=True,
+        text=True,
+        timeout=300,
+        check=False,
+    )
+
+
 def test_the_ruff_targets_cover_the_prd_checker_but_not_its_evidence(noxfile: Any) -> None:
     """``prds/check_consistency.py`` is linted; ``prds/evidence/`` is not.
 
@@ -545,6 +606,12 @@ def test_the_ruff_targets_cover_the_prd_checker_but_not_its_evidence(noxfile: An
     the ``E-nnn`` ids they emit and ``run_all.py`` fails when a cited id is
     emitted by no probe — so reformatting one would invalidate the citation
     chain. They stay excluded; the checker itself is checked like any other code.
+
+    This is the *declaration* half, and goal #37 is why it is not enough on its
+    own: the target is the ``prds`` directory, so the exclusion is what makes
+    "``ruff check prds`` is clean" a true statement. The two tests below ask ruff
+    itself, which is the only way to see that the exclusion is neither too wide
+    nor dead config.
     """
     targets = noxfile.RUFF_TARGETS
     assert "prds" in targets or "prds/check_consistency.py" in targets, (
@@ -555,11 +622,112 @@ def test_the_ruff_targets_cover_the_prd_checker_but_not_its_evidence(noxfile: An
         "byte-identical to what the PRDs cite"
     )
 
-    config = PYPROJECT.read_text(encoding="utf-8")
-    assert re.search(r'extend-exclude\s*=\s*\[.*?"prds/evidence"', config, re.DOTALL), (
+    config = ruff_config()
+    excluded = extend_exclude(config)
+    assert "prds/evidence" in excluded, (
         "pyproject.toml does not exclude prds/evidence from ruff, so `ruff check prds` "
         "would report the probes and the target could only be kept green by "
         "reformatting cited evidence"
+    )
+    widened = sorted(
+        entry for entry in excluded if entry.startswith("prds") and entry != "prds/evidence"
+    )
+    assert not widened, (
+        f"[tool.ruff] extend-exclude also drops {widened}: the exclusion must stay one "
+        "directory wide, or `prds/check_consistency.py` stops being linted"
+    )
+    assert not re.search(r"^exclude\s*=", config, re.MULTILINE), (
+        "[tool.ruff] uses a plain `exclude`, which *replaces* ruff's default list "
+        "instead of adding to it, so `dist/`, `site/` and every virtualenv would "
+        "start being linted. Use `extend-exclude`."
+    )
+
+
+def test_ruff_resolves_the_prd_checker_and_no_probe() -> None:
+    """Behavioural half: ask ruff which files the ``prds`` target resolves to.
+
+    ``--show-files`` prints the corpus ruff would check, so this fails if the
+    exclusion widens to all of ``prds`` (the checker disappears from the list)
+    and fails if the exclusion is dropped (the probes appear in it). Parsing
+    ``pyproject.toml`` could only prove that a string was typed somewhere.
+
+    Both readings are asked, because they differ: ``nox -s lint`` passes the
+    target *explicitly*, and ruff does not apply excludes to an explicitly passed
+    path unless ``--force-exclude`` is given — so widening the entry to ``prds``
+    is invisible to the plain form and obvious to the forced one. Pinning both
+    means neither the invocation nor the exclusion can change alone.
+    """
+    for flags in ((), ("--force-exclude",)):
+        result = _ruff("check", "prds", "--show-files", *flags)
+        assert result.returncode == 0, (
+            f"`ruff check prds --show-files {' '.join(flags)}` failed:\n{result.stderr}"
+        )
+
+        checked = [
+            pathlib.Path(line).resolve() for line in result.stdout.splitlines() if line.strip()
+        ]
+        assert PRD_CHECK in checked, (
+            f"`ruff check prds --show-files {' '.join(flags)}` no longer resolves "
+            f"{PRD_CHECK}: the target is missing, or `extend-exclude` widened to the whole "
+            f"directory. Resolved: {checked}"
+        )
+        probes = sorted(path for path in checked if path.is_relative_to(EVIDENCE_DIR))
+        assert not probes, (
+            f"`ruff check prds --show-files {' '.join(flags)}` resolves {len(probes)} file(s) "
+            f"inside prds/evidence, e.g. {probes[0]}: the probes are cited evidence and must "
+            "not be reformatted to keep a target green"
+        )
+
+
+def test_the_evidence_exclusion_is_load_bearing() -> None:
+    """The probes really are non-conforming, so the exclusion protects something.
+
+    An explicitly passed path bypasses ``extend-exclude`` — ``--force-exclude`` is
+    what opts *into* applying it — which is the only way to ask "what would the
+    probes look like without the entry?". If this ever passes, the entry protects
+    nothing: the probes were rewritten until they conformed, or they moved out
+    from under the exclusion. Re-run ``prds/evidence/run_all.py --check`` and
+    re-verify the ``E-nnn`` citations before deleting it, rather than deleting it
+    because the directory happens to be clean now.
+    """
+    result = _ruff("check", "prds/evidence", "--output-format=concise")
+    assert result.returncode != 0, (
+        "`ruff check prds/evidence` is clean, so `extend-exclude` no longer protects "
+        "anything: either the probes were reformatted (re-verify the E-nnn citations "
+        "first) or they moved. Do not delete the entry without deciding which."
+    )
+    assert "prds/evidence/" in result.stdout, (
+        "ruff rejected the probes but did not name a path under prds/evidence, so this "
+        f"test is no longer measuring the directory it means to:\n{result.stdout[:2000]}"
+    )
+
+
+def test_the_excluded_directory_is_exactly_the_cited_evidence() -> None:
+    """The exclusion is pinned to the probes the PRDs cite, not to ``prds``.
+
+    ``prds/evidence/output/ids.json`` is the recorded audit: the ``E-nnn`` ids
+    cited in ``prds/*.md``, the ids each probe emits, and the difference between
+    the two. Reading it here turns the justification for the exclusion into a
+    checked claim instead of a comment — a probe that moved out of
+    ``prds/evidence/`` (and so started being linted) or a citation chain that
+    drifted apart both fail before anyone deletes the entry because the directory
+    "looks clean". ``tests/unit/test_gitignore_contract.py::EVIDENCE_BASE`` is the
+    other half: it proves these same files stay committed rather than ignored.
+    """
+    recorded = json.loads(IDS_JSON.read_text(encoding="utf-8"))
+    assert recorded["cited_not_emitted"] == [], (
+        "the recorded audit says a cited `E-nnn` id is emitted by no probe: "
+        f"{recorded['cited_not_emitted']} — the citations and the probes have drifted, "
+        "which is exactly what reformatting them would hide"
+    )
+    emitted = {identifier for ids in recorded["probes"].values() for identifier in ids}
+    assert set(recorded["cited"]) <= emitted, (
+        f"ids.json cites ids no recorded probe emits: {sorted(set(recorded['cited']) - emitted)}"
+    )
+    missing = sorted(name for name in recorded["probes"] if not (EVIDENCE_DIR / name).is_file())
+    assert not missing, (
+        f"ids.json records probes that are not under prds/evidence: {missing} — a probe "
+        "outside the excluded directory would be linted and fail"
     )
 
 

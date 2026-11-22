@@ -103,3 +103,30 @@ SUPPORTED_PYTHONS / CI matrix' in GOALS.md, which does not contain 'extras'`.
 
 `nox -s ci` is green end to end with `prds` in the plan, and the corpus checker
 now runs on every push instead of on request.
+
+## Amended by goal #37 — the target is `prds` *with* the exclusion
+
+The goal that closed this one named "`prds/`" as the ruff target and claimed
+"`ruff check prds` and `ruff format --check prds` are clean". Read literally, that
+claim is unsatisfiable: `prds/evidence/**` holds 316 of the repository's 317
+`ruff check .` errors, and those files are cited evidence — PRDs 02-08 quote the
+`E-nnn` ids they emit, `prds/evidence/run_all.py` fails when a cited id is emitted
+by no probe, and `tests/unit/test_gitignore_contract.py::EVIDENCE_BASE` asserts
+they stay committed. The target is therefore the directory *plus* one entry:
+
+```toml
+[tool.ruff]
+extend-exclude = [..., "prds/evidence"]   # one directory wide, not `prds`
+```
+
+`extend-exclude` rather than `exclude`, because a plain `exclude` replaces ruff's
+default list and `dist/`, `site/` and every virtualenv would start being linted.
+
+That entry was only *declared* here, which is the same gap this goal closed one
+level up: a comment cannot tell a one-directory exclusion from a dead one. Goal
+#37 makes it a checked claim — `tests/unit/test_noxfile_contract.py` now asks ruff
+which files the `prds` target resolves (`--show-files`, with and without
+`--force-exclude`), proves the exclusion is load-bearing (an explicitly passed
+path bypasses it, so the probes still report 316 errors), and pins its scope to
+`prds/evidence/output/ids.json`'s recorded probe list. See
+`prds/evidence/37-lint-scope.md`.
