@@ -726,7 +726,7 @@ share a number in a way that matters because they are always spelled `probe E-nn
 | M-38 | An alias row owns no instance, no hook and no teardown entry | `instance_index` skip, `singletons()` | absent from `singletons()` | T04-38 |
 | M-39 | `Inject` overrides the annotation type with a different token | PRD 02 token rule 1 | `Annotated[Iface, Inject(Impl)]` resolves `Impl` | T04-39 |
 | M-40 | `Inject` works in constructor parameters and class-body fields, with class/string/`Token` keys | `_inspect_class_deps`, `_collect_field_deps` | body field resolves | T04-40 |
-| M-41 | `Depends[T]` resolves `T`, including a function token | marker stripping | `Depends[Repo]` → `Repo`; `Depends[fn]` → `Other` | T04-41 |
+| M-41 | `Depends[T]` resolves `T` as a token. In constructor and `injects` position a function token resolves to the factory's value; a class-body field with a non-type `T` is skipped by PRD 02 §5.6's gates 4/6 (the reference injects it — measured in `prds/evidence/43-function-token-field.md`) | marker stripping | `Depends[Repo]` → `Repo`; `Depends[fn]` → `Other` | T04-41 |
 | M-42 | A bare `Token` annotation resolves in constructor position | token lookup | `db: DB` → value | T04-42 |
 | M-43 | Two non-multi providers bound to one token via `provides` fail validation | `compile` ambiguity scan | `ProtocolAmbiguityError {token, count}` | T04-43 |
 | M-44 | `multi=True` is accepted by every registration entry point | `injectable(provides, multi)`, `register_*`, `use_*` | all five forms collect | T04-44 |

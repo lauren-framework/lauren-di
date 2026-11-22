@@ -111,3 +111,38 @@ annotation-position uses (`SpelledFunctionField`, `SpelledTypeField`, and the fu
 fixture), and it must: the field gate cannot be tested without a field annotation that the gate
 skips. #44's exclusion list therefore needs those fixtures named explicitly, or the guard would
 demand the deletion of the very tests that pin this goal's decision.
+
+## Verification pass: a fourth place, and a measured divergence
+
+A sweep deliberately **wider** than the shipped guard (any of `inject|resolv|populat|filled|provides|
+reaches|receives|handed|wired` on a line carrying a function-token `Depends[...]`) found four lines
+across the 22-file corpus. Three are correct contrasts (PRD 01 §5.5's "rather than", PRD 02 §5.7's
+`resolve(make_session)` sentence, T02-23). The fourth was **PRD 04 §6.2's M-41**, whose *normative*
+column read "`Depends[T]` resolves `T`, including a function token" — the same over-claim as R-23,
+and invisible to the shipped guard because it says "resolves", not "injected". Amended to state the
+position split: a function token resolves in constructor/`injects` position; a class-body field with
+a non-type `T` is skipped by PRD 02 §5.6's gates 4/6.
+
+### The reference was measured, not inferred
+
+R-23's "Observed reference behaviour" column claimed "field token was the inner function/class", but
+probe `E-63` (`prds/evidence/prd04/f.py`) only ever exercised a *class* token — so the function half
+was an inference. Probing `../lauren-framework` read-only (the path `tests/parity/backends.py`
+pins) settles it:
+
+```
+reference: /root/python_projects/lauren-all/lauren-framework/lauren/__init__.py
+ByFunction -> Clock()
+ByInject   -> Clock()
+```
+
+The reference **injects** a function-token class-body field; `lauren_di` skips it. That is a real
+fourth behavioural divergence, and it is not in PRD 08 §5.9's register ("the complete divergence
+register: three entries"), PRD 04 §6.4's list, or `tests/parity/backends.py`'s `DIVERGENCES` — P-6
+covers `Annotated[str, Path]`, where the reference *raises* rather than resolves. M-41 now states the
+behaviour and cites this file; registering the divergence in all three places is queued as a
+follow-up goal rather than smuggled into a documentation reconciliation.
+
+This also corrects the goal's own framing: the skip is *internally* consistent with `count: int`, but
+it is **not** "the same bucket" as P-6 from the reference's point of view — P-6's reference raises,
+this one's resolves.
