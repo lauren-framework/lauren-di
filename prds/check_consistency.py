@@ -324,51 +324,118 @@ def check_scope() -> None:
     notes.append("scope: no web-framework imports; unguarded `import lauren` samples: 0")
 
 
-def _registry_entries() -> list[tuple[int, str]]:
-    """Every ``#NN`` registration in §2/§3, as ``(number, description)``.
+#: The two registry tables in ``GOALS.md``, and where each keeps the words that
+#: describe a goal: §2 is ``| Goals | Delivered | Evidence |``, so its description is
+#: cell 2, while §3 is ``| # | Status | Item |``, so its description is cell 3. They
+#: differ, which is why the reader names the cell per table instead of demanding one
+#: width — a single "three cells" rule would reject a valid §2 row and accept a §3
+#: row whose item had been dropped.
+REGISTRY_TABLES = {"## 2.": ("§2", 1), "## 3.": ("§3", 2)}
+#: ``section label -> index of the cell holding the description``.
+DESCRIPTION_CELL = dict(REGISTRY_TABLES.values())
+#: ``| a | b |`` — a table row. The ``|---|`` separator is filtered separately.
+TABLE_ROW = re.compile(r"^\|(.+)\|$")
+#: ``|---|``, ``| :--- | ---: |`` — the row that makes the one above it a header.
+TABLE_SEPARATOR = re.compile(r"^\|[\s:|-]+\|$")
 
-    In file order, and **with duplicates preserved**: a position registered twice
-    is the collision this module exists to catch, and a dict built straight from
-    the rows would silently keep whichever row came last — which is how §4's
-    ``#36`` came to denote two goals while every table still lined up.
 
-    ``GOALS.md`` is the only in-repo description of a goal, and it is versioned
-    with the code, so it is the stable thing a reference can be checked against.
-    The two tables describe goals differently — #1-#22 by range, #23-#38 one row
-    each — so ranges are expanded and each table's descriptive cell is picked by
-    position rather than by guessing.
+def _registry_rows() -> list[tuple[int, str, list[str]]]:
+    """Every *data* row of §2/§3 as ``(line number, section label, cells)``.
+
+    The header row is the one above a ``|---|`` separator; the separator itself, and
+    every line that is not a table row, are not data. Reading the rows positionally —
+    rather than asking "does this cell look like a number?" and skipping the answer
+    "no" without a word — is what makes an unreadable row reportable at all.
     """
     if not GOALS.exists():
         return []
-    text = GOALS.read_text()
-    sections = {
-        "closed": text.split("## 2.")[1].split("## 3.")[0],
-        "carried": text.split("## 3.")[1].split("## 4.")[0],
-    }
+    lines = GOALS.read_text().splitlines()
+    rows: list[tuple[int, str, list[str]]] = []
+    section = ""
+    for index, line in enumerate(lines):
+        stripped = line.strip()
+        if stripped.startswith("## "):
+            section = next(
+                (
+                    label
+                    for marker, (label, _) in REGISTRY_TABLES.items()
+                    if stripped.startswith(marker)
+                ),
+                "",
+            )
+            continue
+        if not section or not TABLE_ROW.fullmatch(stripped):
+            continue
+        if TABLE_SEPARATOR.fullmatch(stripped):
+            continue
+        following = lines[index + 1].strip() if index + 1 < len(lines) else ""
+        if TABLE_SEPARATOR.fullmatch(following):
+            continue
+        rows.append((index + 1, section, [c.strip() for c in stripped.strip("|").split("|")]))
+    return rows
 
-    out: list[tuple[int, str]] = []
 
-    def spread(cell: str, description: str) -> None:
-        # ``#2–#6`` in the closed table, ``34–35`` in the carried one.
-        m = re.fullmatch(r"#?(\d+)(?:[–-]#?(\d+))?", cell)
-        if not m:
-            return
-        lo = int(m.group(1))
-        hi = int(m.group(2) or lo)
-        for n in range(lo, hi + 1):
-            out.append((n, description))
+def _spread(cell: str) -> list[int]:
+    """``#2–#6`` -> ``[2, 3, 4, 5, 6]``; ``23`` -> ``[23]``; anything else -> ``[]``.
 
-    # ``| #2–#6 | Delivered | Evidence |``
-    for row in re.findall(r"^\|(.+)\|$", sections["closed"], re.M):
-        cells = [c.strip() for c in row.split("|")]
-        if len(cells) >= 2:
-            spread(cells[0], cells[1])
-    # ``| 23 | **verified** | Item |``
-    for row in re.findall(r"^\|(.+)\|$", sections["carried"], re.M):
-        cells = [c.strip() for c in row.split("|")]
-        if len(cells) >= 3:
-            spread(cells[0], cells[2])
-    return out
+    An empty result is the caller's signal to report the row, so a reversed range
+    (``#6–#2``) is unreadable rather than silently zero goals wide.
+    """
+    match = re.fullmatch(r"#?(\d+)(?:[–-]#?(\d+))?", cell)
+    if not match:
+        return []
+    low = int(match.group(1))
+    high = int(match.group(2) or low)
+    return list(range(low, high + 1)) if high >= low else []
+
+
+def _parse_registry() -> tuple[list[tuple[int, str]], list[str]]:
+    """``(entries, problems)``: every ``#NN`` registration, and every unreadable row.
+
+    ``entries`` is in file order and **with duplicates preserved**: a position
+    registered twice is the collision this module exists to catch, and a dict built
+    straight from the rows would silently keep whichever row came last — which is how
+    §4's ``#36`` came to denote two goals while every table still lined up.
+
+    ``problems`` is non-empty when a §2/§3 data row registers no goal at all: a first
+    cell that is not a bare number or range (``| **39** | … |``), or a row too short
+    to reach its descriptive cell (``| 39 | a goal with no status cell |``). Both used
+    to be skipped without a word, so a goal could vanish from the registry while
+    ``GOALS.md`` still looked complete and every reference to it stayed undefined but
+    unreported — the same silent skip ``#38`` closed one step later, for collisions.
+    """
+    entries: list[tuple[int, str]] = []
+    problems: list[str] = []
+    for number, section, cells in _registry_rows():
+        first = cells[0] if cells else ""
+        rendered = "| " + " | ".join(cells) + " |"
+        identifiers = _spread(first)
+        if not identifiers:
+            problems.append(
+                f"{GOALS.name}:{number}: {section} registry row's first cell must be a bare "
+                f"number or a range (`23`, `#2–#6`), not {first!r}: {rendered}"
+            )
+            continue
+        description_at = DESCRIPTION_CELL[section]
+        if len(cells) <= description_at:
+            problems.append(
+                f"{GOALS.name}:{number}: {section} registry row has {len(cells)} cell(s), but "
+                f"its description is cell {description_at + 1}: {rendered}"
+            )
+            continue
+        entries.extend((identifier, cells[description_at]) for identifier in identifiers)
+    return entries, problems
+
+
+def _registry_entries() -> list[tuple[int, str]]:
+    """Every ``#NN`` registration in §2/§3, as ``(number, description)``.
+
+    A projection of ``_parse_registry()``. ``GOALS.md`` is the only in-repo
+    description of a goal, and it is versioned with the code, so it is the stable
+    thing a reference can be checked against. The rows this projection cannot see are
+    reported by ``_check_goal_numbering`` rather than dropped.
+    """
+    return _parse_registry()[0]
 
 
 def _goal_texts() -> dict[int, str]:
@@ -414,6 +481,11 @@ def _check_goal_numbering() -> tuple[int, int]:
 
     The rule is structural, so it is checkable:
 
+    * every ``§2``/``§3`` data row *registers* at least one ``#NN``: a row whose first
+      cell is not a bare number or range, or that is too short to reach its table's
+      descriptive cell, is a failure rather than a row to skip — a bolded ``**39**``
+      or a missing status cell used to make a goal invisible here while the file
+      still looked complete;
     * a ``#NN`` is *registered* by exactly one row in §2 or §3 — a position
       registered twice is the collision, whether the second registration is a
       table row or a heading;
@@ -427,12 +499,15 @@ def _check_goal_numbering() -> tuple[int, int]:
         fail("owners", f"missing plan: {GOALS}")
         return 0, 0
     text = GOALS.read_text()
-    registered = _goal_texts()
+    entries, problems = _parse_registry()
+    for problem in problems:
+        fail("owners", problem)
+    registered = dict(entries)
     if not registered:
         fail("owners", f"cannot read goal descriptions from {GOALS}")
         return 0, 0
     registered_at: dict[int, str] = {}
-    for identifier, description in _registry_entries():
+    for identifier, description in entries:
         if identifier in registered_at:
             fail(
                 "owners",
@@ -527,6 +602,17 @@ def check_owners() -> None:
     the rule that assigns them, and that rule is now checked rather than promised.
     """
     queued_refs, programme_refs = _check_goal_numbering()
+
+    # Report what the registry reader actually read, not just what it found: a row it
+    # could not parse is a goal that left the file without a word, so the count is a
+    # claim (0 unreadable) the same way the reference counts are.
+    rows = _registry_rows()
+    entries, problems = _parse_registry()
+    notes.append(
+        f"registry: {len(rows)} §2/§3 data row(s) read, "
+        f"{len({goal for goal, _ in entries})} runner position(s) registered, "
+        f"{len(problems)} unreadable"
+    )
 
     if not BASELINE.exists():
         fail("owners", f"missing baseline: {BASELINE}")

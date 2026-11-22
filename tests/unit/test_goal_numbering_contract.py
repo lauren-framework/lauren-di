@@ -102,6 +102,52 @@ def test_a_position_registered_twice_in_the_tables_fails(numbering) -> None:
     assert "a different third goal" in failures[0]
 
 
+def test_a_bolded_position_cell_fails(numbering) -> None:
+    """A first cell that is not a bare number registers nothing, so it must be a failure.
+
+    ``| **44** | **verified** | … |`` is a well-formed markdown row and reads like a
+    goal, but the old reader asked "is this a number?" and answered "no" by skipping
+    the row — so the goal existed nowhere, and nothing noticed.
+    """
+    plan = PLAN.replace(
+        "| 3 | **verified** | the third goal |",
+        "| 3 | **verified** | the third goal |\n"
+        "| **4** | **verified** | a goal the parser cannot see |",
+    )
+    failures, _ = numbering(plan)
+    assert failures, "a bolded number cell was silently skipped"
+    assert any("first cell must be a bare number" in failure for failure in failures), failures
+    assert any("**4**" in failure for failure in failures), failures
+
+
+def test_a_row_too_short_to_reach_its_description_fails(numbering) -> None:
+    """§3 keeps the item in cell 3, so a two-cell row has no goal to register."""
+    plan = PLAN.replace(
+        "| 3 | **verified** | the third goal |",
+        "| 3 | **verified** | the third goal |\n| 4 | a goal with no status cell |",
+    )
+    failures, _ = numbering(plan)
+    assert failures, "a row with no descriptive cell was silently dropped"
+    assert any("cell(s), but its description is cell 3" in failure for failure in failures), (
+        failures
+    )
+
+
+def test_the_required_width_is_the_table_s_own_not_three(numbering) -> None:
+    """§2's description is cell 2, so a two-cell §2 row is complete and must pass.
+
+    The two tables are not the same width: demanding three cells everywhere would
+    reject a valid §2 row, which is why the rule names the descriptive cell per table.
+    """
+    plan = PLAN.replace(
+        "| #1–#2 | the first two goals | `prds/evidence/01.md` |",
+        "| #1–#2 | the first two goals |",
+    )
+    failures, (queued, _) = numbering(plan)
+    assert failures == [], failures
+    assert queued > 0, "the two-cell §2 row registered nothing"
+
+
 def test_a_range_row_overlapping_a_later_row_fails(numbering) -> None:
     """``#1\u2013#3`` in §2 claims position 3, which §3 gives to another goal."""
     plan = PLAN.replace("| #1\u2013#2 |", "| #1\u2013#3 |")
