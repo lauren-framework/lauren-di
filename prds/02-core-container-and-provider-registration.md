@@ -709,7 +709,7 @@ records what the reference implementation actually did on 2026-11-21, not what i
 | R-20 | An annotated parameter with a default is collected; a missing provider falls back to the default | `_instantiate` + `_callable_default_map` | `None` without a provider, the instance with one | T02-20 |
 | R-21 | `Annotated[T, Inject(x)]` resolves by `x` in constructor and field position | `_extract_inject_token` | token `"DB_TOKEN"` in both positions | T02-21 |
 | R-22 | Multiple `Inject` markers: the first wins, silently | `_extract_inject_token` | first marker used | T02-22 |
-| R-23 | `Depends[T]` resolves by `T` in both positions | `_unwrap_annotated` (reference); the library needs no unwrapping because `Depends[T] is T` (D-25) | field token was the inner function/class | T02-23 |
+| R-23 | `Depends[T]` resolves by `T` in both positions **when `T` is a type**; a non-type `T` in field position is skipped by §5.6's gates 4/6 and is written `Annotated[T, Inject(tok)]` | `_unwrap_annotated` (reference); the library needs no unwrapping because `Depends[T] is T` (D-25) | field token was the inner function/class, which the library skips silently | T02-23 |
 | R-24 | Field gate 1: only own annotations are collected | `_collect_field_deps` | inherited annotation produced no field dep | T02-24 |
 | R-25 | Field gate 2: a class-body value excludes the field | `_collect_field_deps` | `d: Dep = None` → `field_deps=()` | T02-25 |
 | R-26 | Field gate 3: dataclass fields are never DI fields | `_collect_field_deps` | `@dataclass` with `d: Dep` → `field_deps=()` | T02-26 |
@@ -918,7 +918,7 @@ the returned `Provider` record.
 | T02-20 | `test_annotated_default_is_optional` | `def __init__(self, d: Dep = None)` with and without `Dep` registered | `None` vs a `Dep` instance |
 | T02-21 | `test_inject_token_constructor_and_field` | `Annotated[Connection, Inject("DB")]` in both positions | both resolve the `"DB"` value |
 | T02-22 | `test_first_inject_marker_wins` | `Annotated[T, Inject("A"), Inject("B")]` | resolves `"A"`; no error |
-| T02-23 | `test_depends_token_is_inner_type` | `Depends[make_dep]` field and `Depends[Repo]` parameter | tokens are `make_dep` / `Repo` |
+| T02-23 | `test_depends_token_is_inner_type` | `Depends[Repo]` field and parameter; `Depends[make_dep]` field | the class spelling yields the `Repo` token in both positions; the function spelling is skipped (`field_deps == ()`), and `Annotated[Repo, Inject(make_dep)]` resolves `make_dep` |
 | T02-24 | `test_inherited_annotation_not_collected` | base declares `d: Dep`, subclass does not | subclass `field_deps == ()` |
 | T02-25 | `test_class_body_default_not_collected` | `d: Dep = None` | `field_deps == ()`; attribute stays `None` |
 | T02-26 | `test_dataclass_fields_not_collected` | `@injectable() @dataclass` with `d: Dep`, `n: int = 0` | `field_deps == ()` |
