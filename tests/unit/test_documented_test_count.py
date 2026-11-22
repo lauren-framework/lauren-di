@@ -71,8 +71,14 @@ def expected_count(modern: int, legacy: int, *, python: tuple[int, int] | None =
     """The figure that applies to ``python`` (default: the running interpreter).
 
     ``tomllib`` arrived in 3.11, so ``tests/unit/test_readme_contract.py`` is not
-    collected on 3.10 and the total is 25 lower there. Kept as a pure function
-    so the 3.10 branch is testable from a 3.14 interpreter.
+    collected on 3.10, and the legacy figure is lower than the modern one by
+    exactly that module's collection count — as many tests as
+    ``test_readme_contract.py`` collects, whatever that number is. The relation is
+    stated, not the arithmetic: a typed difference goes stale silently (this
+    docstring said the total was one lower than the module's real size), while
+    the figure itself is measured by the sibling test that asserts
+    ``modern - legacy`` equals that module's collection count. Kept as a pure
+    function so the legacy branch is testable from any interpreter.
     """
     version = sys.version_info[:2] if python is None else python
     return legacy if version < (3, 11) else modern
@@ -173,6 +179,28 @@ def test_the_3_10_figure_is_the_interpreter_without_tomllib(
         assert modern - legacy == _collected("tests/unit/test_readme_contract.py")
     else:  # pragma: no cover - this branch needs a 3.10 interpreter
         assert everywhere == legacy
+
+
+def test_the_3_10_rule_is_stated_without_a_typed_count() -> None:
+    """``expected_count``'s docstring states the relation, not a figure.
+
+    It read "the total is 25 lower there" while ``test_readme_contract.py``
+    collected 26 — a stale figure sitting inside the very guard that exists to
+    catch stale figures, the failure class goals #31 and #41 closed. The rule is
+    now qualitative and the figure is measured by the test above, so the only
+    numerals this docstring may contain are interpreter versions.
+    """
+    doc = expected_count.__doc__ or ""
+
+    assert "test_readme_contract.py" in doc and "tomllib" in doc, (
+        f"the docstring must still name both halves of the rule (the module and the "
+        f"stdlib import that excludes it): {doc!r}"
+    )
+    without_versions = re.sub(r"\b3\.\d+\b", "", doc)
+    assert not re.search(r"\d", without_versions), (
+        "expected_count's docstring types a figure the suite measures instead; state the "
+        f"rule without a number (only interpreter versions may appear): {doc!r}"
+    )
 
 
 def test_the_parity_addition_is_what_the_collection_says(
