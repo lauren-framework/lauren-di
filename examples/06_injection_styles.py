@@ -6,11 +6,17 @@ One ``Clock`` dependency, injected three ways into three consumers:
 
 1. **constructor** — ``def __init__(self, clock: Clock)``: explicit, the
 default choice, and the only style a static type checker sees.
-2. **class-body field** — ``clock: Depends[Clock]``: less boilerplate for
-optional collaborators. ``Depends[T]`` is a *runtime spelling* for ``T`` — it
-evaluates to ``T`` — so the field's token is ``Clock``.
+2. **class-body field** — ``clock: Clock``: less boilerplate for optional
+collaborators. The annotation is the *type*, which is also the token, so the
+field is collected without naming anything twice.
 3. **field with an explicit token** — ``clock: Annotated[Clock, Inject("CLOCK")]``:
 needed when the provider is registered under a non-class token.
+
+``Depends[T]`` is a *runtime spelling* for ``T`` — it evaluates to ``T`` — so
+``container.resolve(Depends[Clock])`` is ``container.resolve(Clock)``. It is not
+a type form, so it belongs where it is evaluated, never in annotation position
+(PRD 01 §5.5): mypy and pyright both reject ``x: Depends[T]``, and on a function
+token the field gate would skip the annotation silently.
 
 What to look for
 ----------------
@@ -49,9 +55,9 @@ class ByConstructor:
 
 @injectable()
 class ByField:
-    """Style 2: class-body field; ``Depends[Clock]`` evaluates to ``Clock``."""
+    """Style 2: class-body field; the annotation *is* the token."""
 
-    clock: Depends[Clock]
+    clock: Clock
 
 
 @injectable()
@@ -73,6 +79,9 @@ async def main() -> None:
     by_constructor = await container.resolve(ByConstructor)
     by_field = await container.resolve(ByField)
     by_token = await container.resolve(ByExplicitToken)
+
+    # `Depends[T] is T`, so the spelling is only ever an *expression* (§5.5).
+    assert await container.resolve(Depends[Clock]) is await container.resolve(Clock)
 
     print("constructor:", by_constructor.clock.label())
     print("field:      ", by_field.clock.label())

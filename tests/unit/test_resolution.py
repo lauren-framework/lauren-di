@@ -41,9 +41,13 @@ def make_repo_factory() -> Repo:
     return Repo()
 
 
+# The two ``Depends[...]`` fields below are the field gate's own *input*: the gate cannot be
+# shown to skip a non-type token without being handed one in annotation position. That is the
+# one shape PRD 01 §5.5 forbids everywhere else, so each line carries the marker
+# `tests/docs/test_depends_spelling.py` honours, which exempts that line and nothing else.
 @injectable()
 class SpelledFunctionField:
-    repo: Depends[make_repo_factory]
+    repo: Depends[make_repo_factory]  # field-gate fixture
 
 
 @injectable()
@@ -53,7 +57,7 @@ class AnnotatedFunctionField:
 
 @injectable()
 class SpelledTypeField:
-    repo: Depends[Repo]
+    repo: Depends[Repo]  # field-gate fixture
 
 
 def test_constructor_injection() -> None:
