@@ -6,19 +6,26 @@ magnitude. Nothing read the number, so nothing noticed — the same failure as a
 documented gate that no job runs. This module makes the figure a claim the
 suite checks.
 
-**Why the figure is not simply what ``pytest -q`` prints.** ``tests/parity/``
-needs the ``../lauren-framework`` checkout, and ``tests/parity/test_matrix.py``
-skips itself at *import* time when that checkout is absent, so the collected
-total is 450, 476 or 502 depending on what is on the machine. A documented
-number that changes with the environment is the same defect as a gate that
-does, which is why ``[tool.coverage.report]`` quotes its figure "over the suite
-that runs *everywhere*" and excludes parity. The quick start follows that
-precedent: it states the environment-independent count and says what parity adds
-when the reference checkout is present, so both halves can be checked here.
+**Two things move the collected total, so the line states both.** A single
+number would be false somewhere, and a number that changes with the environment
+is the same defect as a gate that does (which is why
+``[tool.coverage.report]`` quotes its figure "over the suite that runs
+*everywhere*" and excludes parity):
 
-The count is obtained from a ``--collect-only`` subprocess rather than from
+*``tests/parity/``* needs the ``../lauren-framework`` checkout, and
+``tests/parity/test_matrix.py:32-40`` skips itself at *import* time when that
+checkout is absent. Parity contributes the matrix's and the harness's cases, so
+it is quoted as an addition rather than folded into the base.
+
+*Python 3.10* collects fewer tests: ``tests/unit/test_readme_contract.py:42``
+does ``pytest.importorskip("tomllib")`` at module level, and ``tomllib`` is
+stdlib only from 3.11, so that whole module is never collected on 3.10. The
+count is therefore stated per interpreter — one figure for 3.11+, one for 3.10
+— and asserted on all five, not skipped on four of them.
+
+The count comes from a ``--collect-only`` subprocess rather than from
 ``request.session``: this module runs inside the very session it is counting, so
-the total includes it, and asking a *separate* process is what keeps the number
+the total includes it, and asking a *separate* process is what makes the number
 the same one a contributor gets by typing the documented command.
 """
 
@@ -38,9 +45,11 @@ ROOT = pathlib.Path(__file__).resolve().parents[2]
 AGENTS = ROOT / "AGENTS.md"
 REFERENCE_ROOT = ROOT.parent / "lauren-framework"
 
-#: The quick-start line: ``pytest -q  # full suite: N tests (+M parity when …)``.
+#: The quick-start line:
+#: ``pytest -q  # full suite: N tests (M on 3.10); +P parity with ../lauren-framework``.
 _LINE_RE = re.compile(
-    r"^pytest -q\s+#\s+full suite:\s+(?P<base>\d+) tests\s+\(\+(?P<parity>\d+) parity",
+    r"^pytest -q\s+#\s+full suite:\s+(?P<modern>\d+) tests\s+"
+    r"\((?P<legacy>\d+) on 3\.10\);\s*\+(?P<parity>\d+) parity",
     re.MULTILINE,
 )
 #: Any "N tests" claim in a document a reader trusts, so a second, unchecked
@@ -56,6 +65,17 @@ CLAIM_DOCUMENTS = (
     "llms.txt",
     "llms-full.txt",
 )
+
+
+def expected_count(modern: int, legacy: int, *, python: tuple[int, int] | None = None) -> int:
+    """The figure that applies to ``python`` (default: the running interpreter).
+
+    ``tomllib`` arrived in 3.11, so ``tests/unit/test_readme_contract.py`` is not
+    collected on 3.10 and the total is 25 lower there. Kept as a pure function
+    so the 3.10 branch is testable from a 3.14 interpreter.
+    """
+    version = sys.version_info[:2] if python is None else python
+    return legacy if version < (3, 11) else modern
 
 
 def _collected(*selectors: str) -> int:
@@ -106,16 +126,16 @@ def quick_start() -> str:
             return line
     pytest.fail(
         "AGENTS.md's quick start no longer carries a `pytest -q  # full suite: N tests "
-        "(+M parity …)` line; if the wording changed, update _LINE_RE in this module"
+        "(M on 3.10); +P parity …` line; if the wording changed, update _LINE_RE in this module"
     )
 
 
 @pytest.fixture(scope="module")
-def documented(quick_start: str) -> tuple[int, int]:
-    """The two figures the quick start states: the base count and the parity addition."""
+def documented(quick_start: str) -> tuple[int, int, int]:
+    """The three figures the line states: 3.11+, 3.10, and the parity addition."""
     match = _LINE_RE.search(quick_start)
     assert match is not None
-    return int(match.group("base")), int(match.group("parity"))
+    return int(match.group("modern")), int(match.group("legacy")), int(match.group("parity"))
 
 
 @pytest.fixture(scope="module")
@@ -124,32 +144,58 @@ def everywhere() -> int:
     return _collected("--ignore=tests/parity")
 
 
-def test_the_documented_count_is_the_environment_independent_one(
-    documented: tuple[int, int], everywhere: int
+def test_the_documented_count_is_the_one_this_interpreter_collects(
+    documented: tuple[int, int, int], everywhere: int
 ) -> None:
     """AGENTS.md quotes the count a contributor gets without the parity checkout."""
-    base, _ = documented
-    assert base == everywhere, (
-        f"AGENTS.md's quick start says {base} tests, but `pytest -q --ignore=tests/parity` "
+    modern, legacy, _ = documented
+    expected = expected_count(modern, legacy)
+    assert expected == everywhere, (
+        f"AGENTS.md's quick start implies {expected} tests on Python "
+        f"{sys.version_info[0]}.{sys.version_info[1]}, but `pytest -q --ignore=tests/parity` "
         f"collects {everywhere}. Update the line — the count is a claim, not decoration."
     )
 
 
-def test_the_parity_addition_is_what_the_collection_says(documented: tuple[int, int]) -> None:
+def test_the_3_10_figure_is_the_interpreter_without_tomllib(
+    documented: tuple[int, int, int], everywhere: int
+) -> None:
+    """The 3.10 branch is checked from whatever interpreter this runs on.
+
+    ``tomllib`` is stdlib from 3.11, so ``tests/unit/test_readme_contract.py`` is
+    not collected on 3.10. The difference is a property of the suite, so it can
+    be asserted here: it is the size of that module.
+    """
+    modern, legacy, _ = documented
+    assert expected_count(modern, legacy, python=(3, 10)) == legacy
+    assert expected_count(modern, legacy, python=(3, 14)) == modern
+    if sys.version_info[:2] >= (3, 11):
+        assert modern - legacy == _collected("tests/unit/test_readme_contract.py")
+    else:  # pragma: no cover - this branch needs a 3.10 interpreter
+        assert everywhere == legacy
+
+
+def test_the_parity_addition_is_what_the_collection_says(
+    documented: tuple[int, int, int],
+) -> None:
     """With the reference checkout present, base + parity is the full total."""
+    if sys.version_info[:2] < (3, 11):
+        pytest.skip("the parity addition is stated for 3.11+, where tomllib is stdlib")
     if not REFERENCE_ROOT.is_dir():
         pytest.skip(
             f"the parity checkout is absent at {REFERENCE_ROOT}, so the addition cannot be measured"
         )
-    base, parity = documented
+    modern, _, parity = documented
     total = _collected()
-    assert total == base + parity, (
-        f"AGENTS.md says {base} tests plus {parity} parity cases, but `pytest -q` collects "
+    assert total == modern + parity, (
+        f"AGENTS.md says {modern} tests plus {parity} parity cases, but `pytest -q` collects "
         f"{total}. Update the line."
     )
 
 
-def test_the_line_states_what_parity_needs(quick_start: str, documented: tuple[int, int]) -> None:
+def test_the_line_states_what_parity_needs(
+    quick_start: str, documented: tuple[int, int, int]
+) -> None:
     """The figure is only honest with the caveat that explains the difference."""
     assert "lauren-framework" in quick_start, (
         "the quick-start line must name the reference checkout that adds the parity cases, "
