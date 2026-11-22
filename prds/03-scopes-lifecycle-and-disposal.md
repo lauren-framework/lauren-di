@@ -113,7 +113,8 @@ specifies **one** algorithm (§5.7) and applies it to both caches (D-24).
 
 `LifecycleScheduler.run_pre_destruct` returns `list[Exception]`, and the reference's only caller
 (`LaurenApp.shutdown`) logs them. Nothing a test can assert. `OperationScope` does expose
-`teardown_errors`, which is the right shape — but only for request scopes. PRD 01 originally specified
+`teardown_errors` (shipped here as `ResolutionScope.errors`, §5.3), which is the right shape —
+but only for request scopes. PRD 01 originally specified
 `shutdown() -> None`, which would have left the singleton half of "teardown never aborts the rest"
 untestable, and `LifecycleViolationError` was in PRD 01's *not carried* list even though a scope
 object needs exactly that error. Both are corrected here (D-20, D-23), and PRD 01 §5.3.3 and §7 now
@@ -273,12 +274,22 @@ method*, not through injection. There is no `Scope.BYPASS`: a scoped escape hatc
 
 The scope object is the only supported owner of a request cache.
 
-```python
+```python run
 import asyncio
 from lauren_di import DIContainer, Scope, injectable, pre_destruct
 
 @injectable(scope=Scope.REQUEST)
+class Tx:
+    rolled_back = False
+
+    async def rollback(self) -> None:
+        self.rolled_back = True
+
+@injectable(scope=Scope.REQUEST)
 class UnitOfWork:
+    def __init__(self, tx: Tx) -> None:
+        self.tx = tx
+
     @pre_destruct
     async def rollback(self) -> None:
         await self.tx.rollback()
@@ -292,14 +303,19 @@ async def main() -> None:
     container = DIContainer()
     container.register(UserRepo)
     container.register(UnitOfWork)
+    container.register(Tx)
 
     async with container.scope(values={"REQUEST_ID": "r-1"}) as scope:
         repo = await scope.resolve(UserRepo)      # uow is cached in this scope
         again = await scope.resolve(UserRepo)
         assert repo is again
         assert scope.values["REQUEST_ID"] == "r-1"
-    # leaving the block tore down UnitOfWork, newest first
-    assert scope.teardown_errors == ()
+        assert repo.uow.tx is await scope.resolve(Tx)
+        uow = repo.uow
+    # leaving the block tore down UserRepo, UnitOfWork and Tx, newest first
+    assert scope.closed is True
+    assert scope.errors == ()
+    assert uow.tx.rolled_back is True
 
 asyncio.run(main())
 ```
@@ -310,8 +326,8 @@ asyncio.run(main())
 |--------|-----------|----------|
 | `resolve` | `async resolve(token: Any) -> Any` | Resolves within this scope. `REQUEST` instances cache per token; `SINGLETON`s come from the container; `TRANSIENT`s are fresh. Raises `LifecycleViolationError` unless the scope is active |
 | `values` | `Mapping[Any, Any]` | Read-only view of the seeds passed to `container.scope(values=...)`. A token found here is returned as-is by `resolve`, and satisfies a constructor parameter of that type (D-8/D-13) |
-| `active` | `bool` | `True` only between `__aenter__` and close |
-| `teardown_errors` | `tuple[DestructError, ...]` | Empty until the scope closes; then the aggregated failures from that close (D-20) |
+| `closed` | `bool` | `False` until the scope closes, `True` after; the reference spells this `active`, with the opposite sense |
+| `errors` | `tuple[DestructError, ...]` | Empty until the scope closes; then the aggregated failures from that close (D-20) |
 | `close` | `async close() -> tuple[DestructError, ...]` | Idempotent. Tears down the cache newest-first and returns the errors. A second call returns the same tuple and does nothing |
 | `__aenter__` / `__aexit__` | async context manager | `__aenter__` activates; `__aexit__` calls `close()` and **propagates the body's exception unchanged** |
 
@@ -319,7 +335,7 @@ asyncio.run(main())
 the async context manager — `__aenter__` returns `self`, `__aexit__` calls `close()` — so
 `async with container.scope() as scope:` is unchanged and the result still satisfies
 `AsyncContextManager[ResolutionScope]`, while a caller that assigns it keeps `values`,
-`teardown_errors` and `close()` typed.
+`errors` and `close()` typed.
 
 Rules, each testable from the public surface:
 
@@ -546,7 +562,7 @@ Where the tuple surfaces:
 
 | Path | How a test reads it |
 |------|---------------------|
-| `async with container.scope() as scope:` | `scope.teardown_errors` after the block |
+| `async with container.scope() as scope:` | `scope.errors` after the block |
 | `await scope.close()` | the return value |
 | `await container.shutdown()` | the return value (D-20) |
 | A failed `startup()` rollback | logged only; the original exception is what propagates |
@@ -667,7 +683,7 @@ async def main() -> None:
     async with c.scope() as scope:
         first = await scope.resolve(Tx)
         assert first is await scope.resolve(Tx)
-    assert log == ["pool.open", "tx.rollback"] and scope.teardown_errors == ()
+    assert log == ["pool.open", "tx.rollback"] and scope.errors == ()
     assert await c.shutdown() == ()           # pool.close, then cache cleared
     rebuilt = await c.resolve(Tx)             # nothing cached: this is a new instance
     assert rebuilt is not first
@@ -688,7 +704,7 @@ Three things to notice, because they are the contract: the request scope tore `T
 | `_check_scope` (`_di/__init__.py:986`, nested in `compile` at 978) | `_container.py` (private) | Unchanged comparison and `detail` keys; message built through `Scope.label` |
 | `compile` scope traversal (`_di/__init__.py:1120–1190`) | `_container.py` | Unchanged: `deps` + `field_deps`, per `list[T]` member, skip `values` tokens and default-satisfied params |
 | `_unscoped_request_resolution` (`_di/__init__.py:1541`) | `_container.py` | Unchanged logic; logger name `"lauren_di"`; `_unscoped_warned` stays a per-container set |
-| `OperationScope` (`context.py:57`) | `_scope.py` → `ResolutionScope` | **Renamed and trimmed**: no `LaurenApp`, no `name` parameter, no caller-supplied container plumbing; `close()` promoted to the public close path (the reference has only `__aexit__`); `values`, `active`, `teardown_errors`, `resolve` kept |
+| `OperationScope` (`context.py:57`) | `_scope.py` → `ResolutionScope` | **Renamed and trimmed**: no `LaurenApp`, no `name` parameter, no caller-supplied container plumbing; `close()` promoted to the public close path (the reference has only `__aexit__`); `values`, `resolve` kept; `active` → `closed` and `teardown_errors` → `errors` (§6.4 #11) |
 | `finalize_scope` (`_di/_scope.py:55`) | `_scope.py` → `tear_down(entries, *, origin)` | **Unified** (D-24): the one algorithm both `ResolutionScope.close()` and `DIContainer.shutdown()` call |
 | `_teardown_error` (`_di/_scope.py:111`) | `_scope.py` | Unchanged shape; `origin` values becomes `"scope"` / `"shutdown"` |
 | `_instance_label` (`_di/_scope.py:103`) | `_scope.py` | Unchanged (`int` key → instance type) |
@@ -733,7 +749,7 @@ docstrings.
 | L-18 | `resolve()` outside `ACTIVE` raises `LifecycleViolationError` | `OperationScope.resolve` | raised for `PENDING` and for `CLOSED`, `detail={'scope': 'req', 'state': 'pending' \| 'closed'}` | T03-17 |
 | L-19 | A scope is single use: a second `__aenter__` raises | `OperationScope.__aenter__` | `LifecycleViolationError`, `detail={'scope': 'req', 'state': 'active'}` (the state at call time, not `closed`) | T03-18 |
 | L-20 | `values` is a read-only view of the seeds, and a seeded token resolves to itself | `OperationScope.values` / `resolve` | `MappingProxyType`; seeded token returned as-is | T03-19 |
-| L-21 | Leaving the block tears the cache down and clears it | `OperationScope.__aexit__` | cache emptied; `teardown_errors` populated | T03-20 |
+| L-21 | Leaving the block tears the cache down and clears it | `OperationScope.__aexit__` | cache emptied; `errors` populated | T03-20 |
 | L-22 | An exception from the body propagates unchanged after teardown | `OperationScope.__aexit__` | `KeyError` propagated; teardown still ran | T03-21 |
 | L-23 | Teardown order is reverse creation order | `finalize_scope` | resolve A, B, gen → `gen.teardown, B.pre, A.pre` | T03-39 |
 | L-24 | Per instance, `@pre_destruct` runs before `aclose()` | `finalize_scope` | hook then `aclose` | T03-40 |
@@ -793,13 +809,14 @@ Every case that raises, every case that is contained, and the cases that are del
 | 1 | Graph validation trigger | explicit `compile()` only | first `resolve` validates (PRD 02) | a library cannot require an explicit `compile()`; without it the narrowing rule is never enforced | D-14 |
 | 2 | `startup()` idempotence | second call re-fires every `@post_construct` | second call fires nothing | a hook that opens a connection must not open a second one | D-22 |
 | 3 | Post-`shutdown()` state | singleton cache retained; `resolve()` returns the destroyed object | cache cleared; next `resolve()` constructs anew; `startup()` restarts | returning a destroyed instance is a correctness bug, not a policy | D-22 |
-| 4 | Teardown error reporting | `list[Exception]` logged by the app; `shutdown -> None` | `shutdown()` and `scope.close()` return `tuple[DestructError, ...]`; `scope.teardown_errors` | the rule must be assertable from the public API | D-20 |
+| 4 | Teardown error reporting | `list[Exception]` logged by the app; `shutdown -> None` | `shutdown()` and `scope.close()` return `tuple[DestructError, ...]`; `scope.errors` | the rule must be assertable from the public API | D-20 |
 | 5 | Per-hook timeout | `wait_for(..., timeout=10.0)` + `DestructTimeoutError` | no timeout; the caller wraps the whole call | `DestructTimeoutError` is not carried (PRD 01 §7); a per-hook deadline is policy, not DI | D-21 |
 | 6 | Sync-hook threading | singleton hooks via `asyncio.to_thread`; request hooks inline | always inline on the loop | moving user code across threads silently breaks loop-bound hooks; one rule beats two | D-21 |
 | 7 | Teardown pass count | singleton generators torn down in a second full pass after all hooks | one reverse pass: per instance, hooks then `aclose()` | "reverse creation order" must mean one order | D-24 |
 | 8 | Scope state errors | `LifecycleViolationError` | same class, now an exported leaf; `detail` keeps `state` and drops the reference's `scope` name key | PRD 01 listed it as not carried; a scope object needs it | D-23 |
 | 9 | Warn channel for lax mode | `logging.getLogger("lauren")` | `logging.getLogger("lauren_di")` | one logger per distribution | — |
 | 10 | `OperationScope.name` | required label used in logs, in the `DestructError` message and in `detail["origin"]` (`"scope 's'"`) | no name: `origin` is exactly `"scope"`/`"shutdown"`, so the message reads `during scope teardown`; all other `DestructError` keys are identical | there is no app to name a scope after, and an `origin` enum can be compared where a name would have to be parsed | — |
+| 11 | Scope member spellings | `active`, `teardown_errors` | `closed`, `errors` — same meanings, the first inverted (`closed is not active`) | PRD 01 §5.3.1 fixes `.closed`/`.errors` as the shipped names and PRD 01 §5.4's example asserts them; renaming the class instead would break the public surface for a naming preference | — |
 
 Everything else in §6.2 is parity: same order, same exception class names, same silent cases.
 
@@ -860,7 +877,7 @@ lifecycle errors exist and when they are raised versus contained.
 | Reused leaf | `DestructError` — one per contained teardown failure, **returned** not raised |
 | Dropped leaf | `DestructTimeoutError` — no per-hook timeout (D-21) |
 | Dropped leaf | `DrainTimeoutError` — no connection draining (PRD 01 §7) |
-| Signature correction | `DIContainer.shutdown() -> tuple[DestructError, ...]` (was `-> None`) and `ResolutionScope.close() -> tuple[DestructError, ...]`, `ResolutionScope.teardown_errors` (D-20); PRD 01 §5.3.3 updated |
+| Signature correction | `DIContainer.shutdown() -> tuple[DestructError, ...]` (was `-> None`) and `ResolutionScope.close() -> tuple[DestructError, ...]`, `ResolutionScope.errors` (D-20); PRD 01 §5.3.3 updated |
 | Requirement | No lifecycle error is raised by a teardown. `DestructError` instances are values; `except DestructError` never fires during `close()` or `shutdown()` |
 
 ## 8. Phased Implementation Plan
@@ -870,7 +887,7 @@ This PRD is phase 2 of PRD 01 §8 (`0.1.x`). It lands in four steps so each is i
 | Step | Contents | Exit criteria |
 |------|----------|---------------|
 | 2a — Vocabulary and rule | `Scope`; `_check_scope` inside validation; the nine-cell rule; `DIScopeViolationError` details | T03-01…T03-13 green, including the field-dep and `list[T]` edges |
-| 2b — Scope object | `ResolutionScope`, `container.scope()`, `values`, `active`, state guards, cache ownership, strict/lax modes | T03-14…T03-25 green |
+| 2b — Scope object | `ResolutionScope`, `container.scope()`, `values`, `closed`, state guards, cache ownership, strict/lax modes | T03-14…T03-25 green |
 | 2c — Hooks | `post_construct`, `pre_destruct`, `_find_lifecycle_hooks`, `instance_lifecycle_hooks`; construction-time firing for request/transient | T03-26…T03-32, T03-22, T03-36…T03-38 green |
 | 2d — Singleton lifetime and teardown | `topological_order`, `startup()`, `shutdown()`, the unified `tear_down`, `DestructError` aggregation, restartability, `instance_index`, `singletons`/`set_singleton`/`mark_singleton_initialized` | T03-33…T03-35, T03-39…T03-54 green; §5.11 program runs verbatim |
 
@@ -896,7 +913,7 @@ independent of PRDs 04–07 and can ship in any order after 2a.
 Tests live in `tests/unit/lifecycle/` and `tests/parity/`. Everything in §10.1 uses **public names
 only** — `lauren_di` imports plus the `Provider` record returned by registration. No test reads
 `container._singletons`, `_initialized` or `_unscoped_warned`; where a private map would be
-convenient, the assertion uses object identity, `instance_index()`, `scope.teardown_errors` or the
+convenient, the assertion uses object identity, `instance_index()`, `scope.errors` or the
 return value of `close()`/`shutdown()` instead.
 
 ### 10.1 Enumerated test cases
@@ -918,12 +935,12 @@ return value of `close()`/`shutdown()` instead.
 | T03-13 | `test_scope_rule_skips_values_and_defaults` | consumer with `x: Request` defaulted, and a scope-only `values` token | compiles; no error |
 | T03-14 | `test_scope_caches_request_instance` | two `scope.resolve(Tx)` in one scope | same object; `Tx` constructed once |
 | T03-15 | `test_scope_does_not_cache_singletons` | same singleton through two scopes | same object from the container |
-| T03-16 | `test_scope_transient_is_fresh` | two `scope.resolve(Tr)` | different objects; never appears in `teardown_errors` after close |
+| T03-16 | `test_scope_transient_is_fresh` | two `scope.resolve(Tr)` | different objects; never appears in `errors` after close |
 | T03-17 | `test_scope_resolve_requires_active` | `resolve` before enter and after close | both raise `LifecycleViolationError` with `detail["state"]` |
 | T03-18 | `test_scope_single_use` | enter, exit, enter again | second enter raises `LifecycleViolationError` |
 | T03-19 | `test_scope_values_view` | `container.scope(values={Tok: obj})` | `scope.values[Tok] is obj`; mutating the view raises `TypeError`; `await scope.resolve(Tok) is obj` |
 | T03-20 | `test_scope_close_tears_down_and_is_idempotent` | resolve, exit via `close()` twice | first returns the errors tuple, second returns the same tuple; cache emptied (a re-resolve builds a new instance, instances torn down once) |
-| T03-21 | `test_scope_body_exception_propagates` | raise inside the block | the same exception propagates; teardown ran; `scope.teardown_errors` populated |
+| T03-21 | `test_scope_body_exception_propagates` | raise inside the block | the same exception propagates; teardown ran; `scope.errors` populated |
 | T03-22 | `test_request_and_transient_hooks_fire_at_construction` | request + transient providers with `@post_construct` | fires once per constructed instance, not at `startup()` |
 | T03-23 | `test_lax_mode_constructs_untracked` | `DIContainer()` (lax), resolve a request provider twice | different objects; an unrelated singleton is unaffected |
 | T03-24 | `test_strict_mode_rejects_untracked` | `DIContainer(strict_request_scope=True)` | `DIScopeViolationError`, `detail["reason"] == "no_active_scope"`, `detail["token"]` names the token |
@@ -967,7 +984,7 @@ Property-style tests worth adding in the same phase:
   cannot slip through.
 - **Teardown permutation** — resolve a shuffled set of providers in one scope, assert the teardown
   order is exactly the reverse of the resolution order, for 3 providers' worth of permutations.
-- **Aggregation totality** — with `n` failing hooks, assert `len(teardown_errors) == n` and that all
+- **Aggregation totality** — with `n` failing hooks, assert `len(errors) == n` and that all
   `n` hooks ran, for `n` in 1…5.
 
 ### 10.2 Parity harness
@@ -992,7 +1009,7 @@ adapter method because the reference scopes are created through an app:
 | `container.scope(values=...)` | `LaurenApp`-free `OperationScope(container, "parity", values=...)` |
 | `await container.startup()` | `await LifecycleScheduler(container).run_post_construct()` |
 | `await container.shutdown()` | `await LifecycleScheduler(container).run_pre_destruct()` |
-| `scope.teardown_errors` | same property on `OperationScope` |
+| `scope.errors` | `OperationScope.teardown_errors` — the reference's name for the same tuple |
 
 The four adapters live in `_impl.py` only; the test bodies never mention them, which is what keeps
 the parity claim honest. PRD 08 owns the full cross-product matrix.
@@ -1010,5 +1027,5 @@ the parity claim honest. PRD 08 owns the full cross-product matrix.
 | Who fires singleton hooks without a `LifecycleScheduler` | §5.6, L-37…L-39, T03-33…T03-35 |
 | **Reverse-creation-order teardown, specified step by step** | §5.7 five-step algorithm, L-23…L-24, T03-39…T03-41 |
 | **`DestructError` aggregation that never aborts the remaining teardown** | §5.8, L-25…L-28, T03-46…T03-49 |
-| Every lifecycle rule testable from the public API alone | §10 preamble; §10.1 uses only `lauren_di` names plus identity / `instance_index()` / `teardown_errors` / return values |
+| Every lifecycle rule testable from the public API alone | §10 preamble; §10.1 uses only `lauren_di` names plus identity / `instance_index()` / `errors` / return values |
 | Externally built objects participate in the lifecycle, with the reference's plain-method fallback | §5.9.1, L-40…L-42, L-49; T03-36…T03-38, T03-55 |

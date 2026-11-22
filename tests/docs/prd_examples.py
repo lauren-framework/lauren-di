@@ -44,6 +44,7 @@ ROOT = pathlib.Path(__file__).resolve().parents[2]
 PRD_PATH = ROOT / "prds" / "01-product-definition-and-public-api.md"
 SECTION_START = "### 5.4 "
 SECTION_END = "### 5.5 "
+PRD_03_PATH = ROOT / "prds" / "03-scopes-lifecycle-and-disposal.md"
 RUN_TIMEOUT_S = 20.0
 UNCHECKED_MARKERS = frozenset({"fragment", "skip"})
 
@@ -67,6 +68,33 @@ def _load_contract() -> types.ModuleType:
 
 
 _CONTRACT = _load_contract()
+
+
+@dataclass(frozen=True)
+class Section:
+    """One PRD section whose fenced python blocks are executed as tests.
+
+    ``start``/``end`` are heading prefixes: the section runs from the first line
+    beginning with ``start`` up to (but not including) the first line beginning
+    with ``end``. Naming a section instead of hardcoding one is what lets the
+    same engine cover PRD 03 §5.3's runnable example, so a block there is
+    *executed* rather than merely compiled.
+    """
+
+    path: pathlib.Path
+    start: str
+    end: str
+
+    @property
+    def name(self) -> str:
+        """The PRD's file name, used as ``Example.path``."""
+        return self.path.name
+
+
+#: PRD 01 §5.4: one usage example per public symbol (§10 row 3).
+PRD_01_SECTION_5_4 = Section(PRD_PATH, SECTION_START, SECTION_END)
+#: PRD 03 §5.3: ``container.scope()`` and the ``ResolutionScope`` surface.
+PRD_03_SECTION_5_3 = Section(PRD_03_PATH, "### 5.3 ", "### 5.4 ")
 
 
 @dataclass(frozen=True)
@@ -101,13 +129,23 @@ def section_text() -> tuple[str, int]:
     return "\n".join(lines[start:end]) + "\n", start
 
 
-def _headings(text: str, *, offset: int = 0) -> list[tuple[int, str]]:
-    """Every ``####`` heading in ``text`` as ``(absolute line, title)``."""
+def _headings(text: str, *, offset: int = 0, prefix: str = "#### ") -> list[tuple[int, str]]:
+    """Every heading in ``text`` that starts with ``prefix``, as ``(line, title)``."""
     found: list[tuple[int, str]] = []
     for index, line in enumerate(text.splitlines(), start=1):
-        if line.startswith("#### "):
-            found.append((index + offset, line[len("#### ") :].strip()))
+        if line.startswith(prefix):
+            found.append((index + offset, line[len(prefix) :].strip()))
     return found
+
+
+def _section_headings(text: str, *, offset: int) -> list[tuple[int, str]]:
+    """The headings a block is attributed to: ``####`` if any, else the section's own ``###``.
+
+    PRD 01 §5.4 has one ``####`` subsection per symbol; PRD 03 §5.3 has no
+    subsections at all, and a block attributed to "(no subsection)" would make
+    the coverage count meaningless.
+    """
+    return _headings(text, offset=offset) or _headings(text, offset=offset, prefix="### ")
 
 
 def _heading_for(line: int, headings: list[tuple[int, str]]) -> str:
@@ -141,6 +179,54 @@ def collect(text: str | None = None, *, offset: int = 0, path: str | None = None
             )
         )
     return examples
+
+
+def section_text_of(section: Section) -> tuple[str, int]:
+    """``section``'s text and the 0-based line index where it starts."""
+    lines = section.path.read_text(encoding="utf-8").splitlines()
+    start = _index_of(lines, section.start)
+    end = _index_of(lines, section.end, after=start)
+    return "\n".join(lines[start:end]) + "\n", start
+
+
+def collect_section(section: Section) -> list[Example]:
+    """Every fenced python block in ``section``, in file order."""
+    text, offset = section_text_of(section)
+    headings = _section_headings(text, offset=offset)
+    examples: list[Example] = []
+    for block in _CONTRACT.extract_blocks(text, section.name):
+        if block.language not in _CONTRACT.PYTHON_LANGUAGES:
+            continue
+        line = block.line + offset
+        examples.append(
+            Example(
+                path=section.name,
+                line=line,
+                heading=_heading_for(line, headings),
+                markers=frozenset(block.markers),
+                source=block.source,
+            )
+        )
+    return examples
+
+
+def subsections_of(section: Section) -> list[str]:
+    """The subsection titles of ``section``, in order."""
+    text, offset = section_text_of(section)
+    return [title for _, title in _section_headings(text, offset=offset)]
+
+
+def inventory_of(section: Section, examples: list[Example] | None = None) -> str:
+    """One line reporting what ``section`` contributed to this test run."""
+    collected = collect_section(section) if examples is None else examples
+    checked = sum(1 for example in collected if is_checked(example))
+    runnable = sum(1 for example in collected if is_runnable(example))
+    covered = len({example.heading for example in collected})
+    where = f"{section.name} {section.start.strip()}"
+    return (
+        f"{where}: {len(collected)} block(s) collected, {checked} checked, "
+        f"{runnable} marked run, across {covered} of {len(subsections_of(section))} subsection(s)"
+    )
 
 
 def subsections(text: str | None = None) -> list[str]:
