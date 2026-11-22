@@ -121,4 +121,5 @@ valid two-column rows.
 | `python -m pytest -q` | 636 collected (584 without the parity checkout) |
 | `AGENTS.md` quick-start count | 584 / 558 / +52 parity, re-measured with `--collect-only` |
 | `nox -s lint format prds` | clean |
-| `nox -s ci` | green |
+| `nox -s ci` | green in 4 minutes — `ci: all sessions passed`, with the `prds` session printing the new `registry:` line |
+| GitHub Actions on `bcf8b08` | `lint`, `tests`, `docs` and `codeql` all `completed/success` |
