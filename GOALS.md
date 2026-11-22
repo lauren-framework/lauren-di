@@ -1,7 +1,22 @@
 # GOALS.md — the completion plan for `lauren-di`
 
-**Status:** live. Goal numbers are stable and are cited by `prds/evidence/**`, PRD prose and
-commit messages. A goal is *closed* only when its stated command/test exists and passes.
+**Status:** live. A goal is *closed* only when its stated command/test exists and passes.
+
+**Numbering — two namespaces that never mix.**
+
+- `#NN` is a **runner position**: the order in which the work queue actually runs. A position is
+  handed out when a goal is queued, so it can be neither reserved nor predicted. A `#NN` is written
+  here only once the runner has assigned it, it is registered in the table in §2 or §3, and no two
+  goals ever share one.
+- `PN` is a **programme item**: a goal of the PRD 02–07 programme (§4) that has *not* been queued
+  yet. It is identified by its position in this document and receives a `#NN` on the day it is
+  queued; until then, a `PN` is the only stable name it has.
+
+The rule exists because it was broken: §4 once called its first item "#36" while later work took
+runner position #36 for a different goal, so "#36" denoted two things and
+`prds/evidence/**` citations of "#36" became ambiguous. `prds/check_consistency.py`'s `owners` check
+now enforces the split — a `#NN` outside §2/§3's registry, a `PN` heading outside §4, a number used
+twice, or a reference to an id the file does not define is a failure, not a typo.
 
 ---
 
@@ -50,7 +65,7 @@ The PRD 01 conformance programme. Evidence, in order:
 | #20–#21 | Parity suite (PRD 08 matrix); every gate wired into `nox -s ci` and CI | `tests/parity/`, `tests/unit/test_noxfile_contract.py` |
 | #22 | Final conformance pass, all five interpreters, ratchet raised | `prds/evidence/22-final-conformance.md` |
 
-## 3. Carried — goals #23–#35
+## 3. Carried — goals #23–#38
 
 | # | Status | Item |
 |---|---|---|
@@ -59,19 +74,35 @@ The PRD 01 conformance programme. Evidence, in order:
 | 25 | **verified** | PRD 01 §5.4 "one example per named symbol": the 18 subsections became 22 (adding `ResolutionScope`, `Owner`/`Grant`, `building_with`/`active_override_plan`, and one grouped block for the thirteen error leaves); §5.4's preamble and §10.1's traceability row now state the rule the section actually follows (one subsection per symbol or tight pair, plus the grouped leaf block); and `tests/docs/test_prd_examples.py` derives the expectation from `lauren_di.__all__` (`test_every_exported_name_has_an_example`) and checks §10.1's row against the section's measured shape in both directions (`test_the_acceptance_row_states_the_rule_the_section_follows`) |
 | 26 | **deleted** | Restatement of the packaging goal; superseded by #10 |
 | 27 | **verified** | Optional `typing_extensions` import reconciled as shape (a): the guarded import stays (dropping it would cost `_typing/forwardref.py`'s byte-comparability with its upstream reference and buy nothing, since the wheel imports without it), §5.1's runtime bullet now claims *requirements* rather than imports ("no module *requires* anything outside the standard library") and names the one module a module *consults*, §6.2 distinguishes mandatory from **guarded optional** imports and declares `typing_extensions` on a line the test parses, the denylist is stated as absolute, and §10's import-graph row states the same qualified rule as §6.2 instead of the older "imports no third-party module"; `test_optional_imports_are_exactly_the_declared_ones` compares the code against the PRD line instead of a hardcoded copy, with `test_every_declared_guarded_import_carries_a_reason`, `test_the_denylist_is_absolute_for_guarded_imports`, `test_the_import_graph_row_states_the_same_rule_as_section_6_2` (row must carry §6.2's qualifier, read from §6.2) and `test_the_runtime_dependencies_bullet_agrees_with_section_6_2` (bullet must name every declared module and may not restate the concession as an absolute) closing the other directions |
-| 28 | pending | `Depends[T]`'s static form (instance with `__getitem__` is rejected in annotation position) |
-| 29 | pending | mypy/pyright asymmetry on `resolve`'s overload pair |
-| 30 | pending | Make "zero broken relative links" a gate in `check_docs_contract.py` |
-| 31 | pending | Stale test count in `AGENTS.md`'s quick start |
-| 32 | pending | Publish the repository (remote, first commit, Pages) |
-| 33 | pending | Make the `codeql` workflow pass on the published repo |
-| 34–35 | pending | Added to the live plan after the recovered snapshot; text is in the session record and is unchanged by this file |
+| 28 | **verified** | `Depends[T]` declared a *runtime* spelling (shape b): `Depends[T] is T` holds, PRD 01 §5.4's example and §5.5 state the runtime-only rule, `lauren_di/types.py`'s docstring says a subscripted value is not a type expression, and `tests/unit/test_public_api.py` asserts the identity without claiming static support |
+| 29 | **verified** | mypy/pyright asymmetry closed by narrowing the fallback overload (shape a): `resolve`'s untyped variant now reads `token: str \| Token -> Any`, so a class token has exactly one candidate and `number: int = await container.resolve(Config)` fails under both checkers — `tests/unit/test_resolve_contract.py` runs `mypy --strict` over the misuse fixture; evidence in `prds/evidence/29-resolve-overload-asymmetry.md` |
+| 30 | **verified** | "Zero broken relative links" is a gate: `scripts/check_docs_contract.py` resolves every relative markdown link in the corpus (skipping images, fenced blocks, inline code and titles) and reports `path:line [link]`; `CONTRIBUTING.md` joined `SOURCE_FILES` so its examples compile; evidence in `prds/evidence/30-docs-relative-links.md` |
+| 31 | **verified** | `AGENTS.md`'s quick-start test count is machine-checked by `tests/unit/test_documented_test_count.py` and no other document states an unchecked figure; evidence in `prds/evidence/31-documented-test-count.md` |
+| 32 | **verified** | Repository published (`origin`, `main`, first commit), with the cassette/evidence decision enforced by `tests/unit/test_gitignore_contract.py`; evidence in `prds/evidence/19-readme-restyle.md` |
+| 33 | **verified** | `codeql` workflow green on the published repo; the upload limitation and the honest fallback are recorded in the workflow comment and `prds/evidence/33-codeql-upload.md` |
+| 34 | **verified** | `examples/` ships ten distinct runnable applications, indexed by `examples/README.md`, executed as subprocesses by `tests/examples/` so they cannot rot |
+| 35 | **verified** | `README.md` opens with the shared `lauren-assets` logo above the title block, with the badge row, tagline, agent table and byte-identical §5.2 quickstart untouched |
+| 36 | **verified** | `prds/check_consistency.py` is gated rather than remembered: a `prds` nox session, a `prds` job in `.github/workflows/lint.yml`, both wired into `nox -s ci`, and the session↔CI parity test covering them; evidence in `prds/evidence/36-prds-gate.md` |
+| 37 | **verified** | The `prds` ruff target is scoped to `prds/check_consistency.py` with `extend-exclude = [..., "prds/evidence"]`, proven behaviourally (`--show-files`, load-bearing, and the recorded `E-nnn` probe list); evidence in `prds/evidence/37-lint-scope.md` |
+| 38 | **verified** | `GOALS.md`'s two numbering namespaces are split and checked: §4's twelve items are `P1–P12` (they hold no runner position yet), §3 gained verified rows for #36 and #37, and `prds/check_consistency.py` fails on a `#NN` outside §2/§3's registry, a `PN` heading outside §4, a number used twice, or a reference to an id the file does not define; evidence in `prds/evidence/38-goals-numbering.md` |
 
-## 4. The PRD 02–07 completion programme — goals #36–#46
+The positions still in the queue are deliberately **not** mirrored here: the queue is the only
+source of truth for what runs next, and a second copy of it would drift the way §4's numbering did.
+A position appears in this file when it is closed (with its evidence) or when it is a programme
+item (§4), and `prds/check_consistency.py` fails on any `#NN` this file cites without registering
+it above — so this note names no position it cannot show.
+
+## 4. The PRD 02–07 completion programme — programme items P1–P12, none of them queued yet
 
 ### 4.1 Measured starting point
 
 Every figure below was produced by a command in this repository on the committed tree.
+
+> **Snapshot, not status.** These numbers are the starting point the programme was planned
+> from: 408 tests and 75.55 % coverage. Re-measured on the tree that wrote this section's
+> numbering rule, the suite is 519 tests (571 with the parity checkout) and coverage is
+> **75.65 %** — the programme has not moved the figure yet, which is exactly what P2–P11 are
+> for. Treat every number below as a baseline to beat, never as a current claim.
 
 **The test plans are written but not implemented.** Each PRD enumerates its acceptance cases as
 `T0N-nn` rows in §10.1; measured against the `test_*` functions that actually exist:
@@ -112,7 +143,7 @@ Required test coverage of 75.5% reached. Total coverage: 75.55%
 
 ---
 
-### #36 — Decide the PRD 02–07 test layout, then make every §10 preamble name a real path
+### P1 — Decide the PRD 02–07 test layout, then make every §10 preamble name a real path
 
 Four PRDs name a test package that does not exist (`tests/unit/lifecycle/`, `tests/unit/custom/`,
 `tests/unit/validation/`, `tests/unit/errors/`), while the suite is flat (`tests/unit/test_*.py`).
@@ -134,7 +165,7 @@ Whichever is chosen, add a check to `prds/check_consistency.py`: every `tests/�
 
 ---
 
-### #37 — PRD 02 conformance: the 43 `T02-nn` cases and the three uncovered parameter shapes
+### P2 — PRD 02 conformance: the 43 `T02-nn` cases and the three uncovered parameter shapes
 
 PRD 02's behaviour is implemented; its test plan is not. `tests/unit/test_registration.py` (14 tests)
 and `tests/unit/test_resolution.py` (14) cover the mainline, but **zero** §10.1 names match and three
@@ -160,7 +191,7 @@ clause is either implemented or struck with a written reason; evidence in
 
 ---
 
-### #38 — Reconcile PRD 02 §10.2 with PRD 08 MC-28 (a spec conflict, not a missing file)
+### P3 — Reconcile PRD 02 §10.2 with PRD 08 MC-28 (a spec conflict, not a missing file)
 
 PRD 02 §10.2 (lines 938–948) mandates `tests/parity/test_prd02_registration.py` plus a two-line
 `tests/parity/_impl.py` shim that does `from lauren import …` when
@@ -179,7 +210,7 @@ carve-out (the check exists for PRD 01 samples — extend it to 02–07); eviden
 
 ---
 
-### #39 — PRD 03 conformance: the 55 `T03-nn` cases (scopes, lifecycle, disposal)
+### P4 — PRD 03 conformance: the 55 `T03-nn` cases (scopes, lifecycle, disposal)
 
 `tests/integration/test_scopes_and_lifecycle.py` (458 lines) covers the happy paths; the §10.1 plan
 enumerates 55 cases and none of them by name. The rows with the most riding on them:
@@ -200,7 +231,7 @@ enumerates 55 cases and none of them by name. The rows with the most riding on t
 
 ---
 
-### #40 — PRD 04 conformance: the 51 `T04-nn` cases, and the `detail`-shape mismatch inside the PRD
+### P5 — PRD 04 conformance: the 51 `T04-nn` cases, and the `detail`-shape mismatch inside the PRD
 
 `tests/integration/test_error_catalogue.py` exercises recipes and errors, but the §10.1 plan (51
 rows, 1:1 with the M-01…M-51 parity table) is unimplemented by name. The plan also asks for §5.7's
@@ -218,7 +249,7 @@ state one shape and a test asserts that exact key set; evidence in
 
 ---
 
-### #41 — PRD 05 conformance: the 50 `T05-nn` cases and the six-phase ordering guarantee
+### P6 — PRD 05 conformance: the 50 `T05-nn` cases and the six-phase ordering guarantee
 
 The compile pipeline exists but its *contract* is untested: the six phases (token index, alias
 targets, cycles, missing providers, scope narrowing, finalise), fail-fast with no aggregation, and
@@ -236,7 +267,7 @@ invalidates it (D-15, T05-04); every leaf's `code` is stable and its `detail` is
 
 ---
 
-### #42 — PRD 06 conformance: the 40 `T06-nn` cases and decisions D-37…D-43
+### P7 — PRD 06 conformance: the 40 `T06-nn` cases and decisions D-37…D-43
 
 `tests/integration/test_visibility.py` (260 lines) is the only PRD 06 test file and it matches one
 §10.1 name. The decisions that must be *proved*, not described:
@@ -256,7 +287,7 @@ fails when the rule is reversed; evidence in `prds/evidence/42-prd06-conformance
 
 ---
 
-### #43 — PRD 07 conformance: the 34 `T07-nn` cases, D-44…D-49, and `OVERRIDE_KINDS`
+### P8 — PRD 07 conformance: the 34 `T07-nn` cases, D-44…D-49, and `OVERRIDE_KINDS`
 
 `tests/integration/test_overrides.py` (279 lines) covers the kinds; the plan's 34 rows do not exist
 by name. Prove the decisions: payload validated when the plan is **built**, only target existence at
@@ -277,7 +308,7 @@ artefacts updated or absent from §9.4's public-symbol list; evidence in
 
 ---
 
-### #44 — Make traceability machine-checked (the gate that makes #37–#43 real)
+### P9 — Make traceability machine-checked (the gate that makes P2–P8 real)
 
 A `T0N-nn` id is currently prose. Turn it into a contract:
 
@@ -286,7 +317,7 @@ A `T0N-nn` id is currently prose. Turn it into a contract:
    traceability row, a traceability row names a test that does not exist in the tree (AST scan, not
    grep), or a §10.1 test name has no row;
 3. the check also fails when a PRD 02–07 §10 preamble names a `tests/…` path that does not exist
-   (goal #36) and when a PRD sample imports `lauren` outside a documented parity carve-out (#38).
+   (P1) and when a PRD sample imports `lauren` outside a documented parity carve-out (P3).
 
 This is the goal that stops the programme from regressing into prose: after it, "PRD 02 is complete"
 is a script result, not a claim.
@@ -297,7 +328,7 @@ offending id and path; the script's docstring enumerates the new checks in the s
 
 ---
 
-### #45 — Deliver the PRD 02–07 §9 documentation, reconciled with PRD 01 §9's nine-page layout
+### P10 — Deliver the PRD 02–07 §9 documentation, reconciled with PRD 01 §9's nine-page layout
 
 Ten pages named by §9 do not exist (§4.1), and PRD 01 §9 fixes a different, smaller corpus. Decide
 once — add the pages (and extend `mkdocs.yml` nav and `docs_contract`'s nav check), or amend the
@@ -314,7 +345,7 @@ that PRD; a `docs_contract` check resolves every relative link in the corpus (go
 
 ---
 
-### #46 — 100 % test coverage of `lauren_di`
+### P11 — 100 % test coverage of `lauren_di`
 
 **Target: `coverage report --include='lauren_di/*'` reports `100.00%` for statements *and*
 branches, per module, and `[tool.coverage.report] fail_under = 100`.** Not "100 % of a rounded
@@ -338,7 +369,7 @@ Rules, because "100 %" is easy to fake:
 3. **The measurement basis does not change.** `nox -s coverage` keeps `--ignore=tests/parity`
    (goal #21's fix: parity needs an external checkout, so it cannot be part of a gate that must give
    the same answer everywhere). 100 % must be reached **without** the parity cases.
-4. **Order matters.** #37–#43 author the 273 PRD cases; those close most of the gap. #46 is the
+4. **Order matters.** P2–P8 author the 273 PRD cases; those close most of the gap. P11 is the
    residue: error paths, defensive branches, `__repr__`/`__post_init__` guards, and the
    `_container.py` blocks at 825–849, 858–865, 888–929, 955–988, 1003–1020, 1031–1077, 1463–1502,
    2207–2228, 2783–2802, 2835–2855.
@@ -359,7 +390,13 @@ Rules, because "100 %" is easy to fake:
 
 ---
 
-### #47 — Untrack `tests/.cassette/`, an agent session recording committed inside the test tree
+### P12 — Untrack `tests/.cassette/`, an agent session recording committed inside the test tree
+
+**Delivered with #32**, and queued once as a runner goal where it was then deleted: the pre-flight audit
+that published the repository removed the directory and added `tests/.cassette/` to
+`.gitignore`'s agent-scratch section, so `git ls-files tests/.cassette` is empty and
+`tests/unit/test_gitignore_contract.py` asserts both directions. Kept here as the record of the
+decision rather than as outstanding work; the acceptance list below is what was met.
 
 `tests/.cassette/001c32cb-…/{cassette,approvals}.jsonl` and `meta.json` were committed in
 `5f8a226 feat: first`. They are not fixtures: `cassette.jsonl` is a verbatim transcript of an earlier
@@ -382,20 +419,20 @@ default collection ignores, and it is absent from `.gitignore`'s "Agent and tool
 ## 5. Order and dependencies
 
 ```
-#36 (layout) ──┬─> #37 (PRD 02) ──> #38 (parity scope)
-               ├─> #39 (PRD 03)
-               ├─> #40 (PRD 04)
-               ├─> #41 (PRD 05)
-               ├─> #42 (PRD 06)
-               └─> #43 (PRD 07)
-                        │
-                        ├─> #44 (traceability gate)  — needs every T-row named
-                        ├─> #45 (docs)               — independent, can run in parallel
-                        └─> #46 (100 % coverage)     — last; the 273 cases are its bulk
+P1 (layout) ──┬─> P2 (PRD 02) ──> P3 (parity scope)
+              ├─> P4 (PRD 03)
+              ├─> P5 (PRD 04)
+              ├─> P6 (PRD 05)
+              ├─> P7 (PRD 06)
+              └─> P8 (PRD 07)
+                       │
+                       ├─> P9 (traceability gate)  — needs every T-row named
+                       ├─> P10 (docs)              — independent, can run in parallel
+                       └─> P11 (coverage)          — last; the 273 cases are its bulk
 ```
 
-Recommended execution order: **#36 → #37 → #38 → #44 (early, so the rest is enforced as it lands) →
-#39 → #40 → #41 → #42 → #43 → #45 → #46.**
+Recommended execution order: **P1 → P2 → P3 → P9 (early, so the rest is enforced as it lands) →
+P4 → P5 → P6 → P7 → P8 → P10 → P11.**
 
 ## 6. Appendix — coverage scope and why
 
@@ -407,4 +444,4 @@ reference implementation and deliberately kept byte-comparable with it (it is al
 ruff). It is defensive by construction — every branch is a fallback for a resolution strategy the
 container never selects — and it is not part of the documented public surface. "100 % of the
 library" therefore means 100 % of the eight first-party modules; the omission is asserted by a test
-(goal #46 rule 1) rather than assumed.
+(P11 rule 1) rather than assumed.

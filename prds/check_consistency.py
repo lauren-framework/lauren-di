@@ -292,9 +292,13 @@ def _goal_texts() -> dict[int, str]:
 
     ``GOALS.md`` is the only in-repo description of a goal, and it is versioned
     with the code, so it is the stable thing a reference can be checked against.
-    The three tables describe goals differently -- #1-#22 by range, #23-#35 one
-    row each, #36+ by heading -- so ranges are expanded and each table's
-    descriptive cell is picked by position rather than by guessing.
+    The two tables describe goals differently -- #1-#22 by range, #23-#37 one row
+    each -- so ranges are expanded and each table's descriptive cell is picked by
+    position rather than by guessing.
+
+    Programme items (``### P1 — …``) are deliberately absent: they hold no runner
+    position yet, so a reference may not point at one with ``#NN``. Their own
+    resolution is checked by ``_check_goal_numbering``.
     """
     if not GOALS.exists():
         return {}
@@ -302,7 +306,6 @@ def _goal_texts() -> dict[int, str]:
     sections = {
         "closed": text.split("## 2.")[1].split("## 3.")[0],
         "carried": text.split("## 3.")[1].split("## 4.")[0],
-        "programme": text.split("## 4.")[1],
     }
 
     out: dict[int, str] = {}
@@ -327,10 +330,120 @@ def _goal_texts() -> dict[int, str]:
         cells = [c.strip() for c in row.split("|")]
         if len(cells) >= 3:
             spread(cells[0], cells[2])
-    # ``### #36 — Title``
-    for m in re.finditer(r"^### #(\d+) — (.+)$", sections["programme"], re.M):
-        out[int(m.group(1))] = m.group(2)
     return out
+
+
+#: ``### #36 — Title`` (a queued goal) or ``### P1 — Title`` (a programme item).
+GOAL_HEADING = re.compile(
+    r"^### (?:#(?P<number>\d+)|P(?P<programme>\d+))\s+—\s+(?P<title>\S.*)$", re.MULTILINE
+)
+#: The programme section. Its items are ``PN``; everything else is ``#NN``.
+PROGRAMME_SECTION = "## 4."
+#: ``#12``, ``#12–#14`` in prose.
+NUMBER_REF = re.compile(r"#(\d+)(?:\s*[–-]\s*#?(\d+))?")
+#: ``P3``, ``P2–P8`` in prose (not part of a word, a code fence's content is fine).
+PROGRAMME_REF = re.compile(r"(?<![\w`])P(\d+)(?:\s*[–-]\s*P?(\d+))?(?![\w`])")
+
+
+def _expand(match: re.Match[str]) -> list[int]:
+    """``#12`` -> ``[12]``; ``#12–#14`` -> ``[12, 13, 14]``."""
+    low = int(match.group(1))
+    high = int(match.group(2) or low)
+    return list(range(low, high + 1)) if high >= low else [low]
+
+
+def _check_goal_numbering() -> tuple[int, int]:
+    """GOALS.md's two namespaces: ``#NN`` runner positions and ``PN`` programme items.
+
+    A ``#NN`` is a position the work queue actually assigned, so it can be neither
+    reserved nor predicted: §4 called its first item "#36" while later work took
+    runner position #36 for a different goal, and from then on "#36" denoted two
+    things -- a defect no other check could see, because every number was still
+    well-formed and every table still lined up.
+
+    The rule is structural, so it is checkable:
+
+    * a ``#NN`` is *registered* by a row in §2 or §3, and a heading may not reuse a
+      registered number (that is the collision);
+    * §4's headings are ``PN`` and no heading outside §4 may be one;
+    * every ``#NN`` and every ``PN`` written anywhere in the file resolves to an id
+      the file defines, so a citation can never point at nothing.
+
+    Returns the number of each kind of reference checked.
+    """
+    if not GOALS.exists():
+        fail("owners", f"missing plan: {GOALS}")
+        return 0, 0
+    text = GOALS.read_text()
+    registered = _goal_texts()
+    if not registered:
+        fail("owners", f"cannot read goal descriptions from {GOALS}")
+        return 0, 0
+    if PROGRAMME_SECTION not in text:
+        fail("owners", f"{GOALS.name} has no '{PROGRAMME_SECTION}' programme section")
+        return 0, 0
+
+    start = text.index(PROGRAMME_SECTION)
+    end = text.index("## 5.", start) if "## 5." in text[start:] else len(text)
+
+    programme: set[int] = set()
+    for match in GOAL_HEADING.finditer(text):
+        title = match.group("title").strip()
+        inside = start <= match.start() < end
+        number = match.group("number")
+        if number is not None:
+            identifier = int(number)
+            if inside:
+                fail(
+                    "owners",
+                    f"{GOALS.name}: '### #{identifier} — {title}' sits in §4, whose items are "
+                    "programme items: it must be 'P<n>', not a runner position",
+                )
+            elif identifier in registered:
+                fail(
+                    "owners",
+                    f"{GOALS.name}: '### #{identifier} — {title}' reuses a number §2/§3 already "
+                    f"give to {registered[identifier]!r}",
+                )
+            else:
+                fail(
+                    "owners",
+                    f"{GOALS.name}: '### #{identifier} — {title}' is not registered in §2/§3, so "
+                    "the number is not a runner position this file can vouch for",
+                )
+        else:
+            identifier = int(match.group("programme"))
+            if not inside:
+                fail(
+                    "owners",
+                    f"{GOALS.name}: '### P{identifier} — {title}' sits outside §4, so it must "
+                    "carry the runner position it was queued under ('#<n>')",
+                )
+            if identifier in programme:
+                fail("owners", f"{GOALS.name}: programme item P{identifier} is defined twice")
+            programme.add(identifier)
+
+    queued_refs = 0
+    for match in NUMBER_REF.finditer(text):
+        for identifier in _expand(match):
+            queued_refs += 1
+            if identifier not in registered:
+                fail(
+                    "owners",
+                    f"{GOALS.name}: reference '#{identifier}' names no goal registered in §2/§3",
+                )
+
+    programme_refs = 0
+    for match in PROGRAMME_REF.finditer(text):
+        for identifier in _expand(match):
+            programme_refs += 1
+            if identifier not in programme:
+                fail(
+                    "owners",
+                    f"{GOALS.name}: reference 'P{identifier}' names no programme item in §4",
+                )
+
+    return queued_refs, programme_refs
 
 
 def check_owners() -> None:
@@ -346,7 +459,13 @@ def check_owners() -> None:
     both halves are checked: the number must be defined in ``GOALS.md``, and the word
     must appear in that goal's description. Pointing at the wrong goal therefore
     fails here rather than silently misdirecting a reader.
+
+    The same defect one level up is why this check also owns ``GOALS.md``'s own
+    numbering (``_check_goal_numbering``): the file's numbers are only as good as
+    the rule that assigns them, and that rule is now checked rather than promised.
     """
+    queued_refs, programme_refs = _check_goal_numbering()
+
     if not BASELINE.exists():
         fail("owners", f"missing baseline: {BASELINE}")
         return
@@ -381,7 +500,11 @@ def check_owners() -> None:
                     f"which does not contain {word!r}",
                 )
 
-    notes.append(f"owners: {refs} baseline owner reference(s) resolve to the goal that closed them")
+    notes.append(
+        f"owners: {refs} baseline owner reference(s) resolve to the goal that closed them; "
+        f"{queued_refs} '#NN' and {programme_refs} 'P<n>' reference(s) in GOALS.md resolve "
+        "inside one namespace"
+    )
 
 
 def main() -> int:
