@@ -98,6 +98,33 @@ A third drill — deleting the typed overload outright — never reaches the neg
 the green mypy run fails first (`Found 12 errors in 4 files (checked 15 source files)`), so the
 overload cannot disappear quietly either.
 
+## The goal's stated drill is false for pyright
+
+Goal #45's verify line says "temporarily reverting the fallback overload to `token: Any` makes the
+new step fail with pyright's `Type "Config" is not assignable to declared type "int"`". Measured on
+the committed tree (`e765ef2`), with `token: str | Token` reverted to `token: Any`:
+
+```text
+$ npx --yes pyright@1.1.390 tests/typing_negative/resolve_misuse.py
+  resolve_misuse.py:44:19 - error: Type "Config" is not assignable to declared type "int"
+1 error, 0 warnings, 0 informations
+
+$ nox -s typing
+nox > Session typing was successful in 19 seconds.
+
+$ python -m pytest -q tests/unit/test_resolve_contract.py -k mypy_rejects
+FAILED tests/unit/test_resolve_contract.py::test_mypy_rejects_a_class_token_bound_to_a_conflicting_declared_type
+1 failed, 16 deselected
+```
+
+The new step stays **green** on that revert; the *mypy* half goes red. The reason is the asymmetry
+in the table above: pyright takes the first matching overload, so the fallback's spelling cannot
+change its answer. The goal's intent — pyright's rejection is continuously proven, and the session
+fails if it ever stops being true — is met, and D2 is the revert that demonstrates it; the drill the
+goal names is a revert of the *mypy* half and is caught by the gate goal #29 already built. Nothing
+was weakened to make this pass: no `token: Any` fallback ships, and
+`test_the_fallback_overload_cannot_match_a_class_token` still asserts the shipped spelling.
+
 ## The correction the drills forced
 
 The first version of the step's failure message said the fallback had "probably widened back to
