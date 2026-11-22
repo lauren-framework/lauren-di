@@ -118,3 +118,88 @@ Two of these were drilled by hand while writing the file: adding
 and pointing a workflow badge at `lauren-framework/lauren-framework` fails
 `test_workflow_badges_name_workflows_that_exist_here` with the mismatched slug
 in the message.
+
+## After publication — the four 404s are now 200 (checked `curl -L`, goal 32)
+
+The repository was created and pushed (19 commits on `main`, tracking
+`origin/main`), and `.github/workflows/docs.yml` has deployed Pages. Re-checking
+the four targets the table above recorded as 404:
+
+| Target | Before | After |
+|---|---|---|
+| `https://github.com/lauren-framework/lauren-di` | 404 | **200** |
+| `…/actions/workflows/tests.yml/badge.svg?branch=main` | 404 | **200** |
+| `…/actions/workflows/lint.yml/badge.svg?branch=main` | 404 | **200** |
+| `…/actions/workflows/codeql.yml/badge.svg?branch=main` | 404 | **200** |
+| `…/blob/main/LICENSE` | 404 | **200** |
+| `https://lauren-framework.github.io/lauren-di/` | 404 | **200** |
+| `https://pypi.org/project/lauren-di/` | 404 (bot page) | **200** |
+
+So the clause the earlier section called unsatisfiable ("returns 200") now holds
+for all four, and the note that recorded it as unsatisfiable is left in place
+rather than rewritten — it was true when it was written, and the after-state is
+the evidence that the cause it named (a repository that did not exist) was the
+whole cause.
+
+## Publish audit — what ships and what does not
+
+The pre-flight audit of the first commit's contents produced **two opposite
+decisions**, and the difference matters because both directories look like
+scratch:
+
+| Path | Decision | Why |
+|---|---|---|
+| `tests/.cassette/001c32cb-…/` | **ignored + untracked** | `cassette.jsonl` is a verbatim agent-session transcript and `approvals.jsonl` its tool-approval log. Nothing in the repository reads the directory; `grep -rn cassette` outside it finds only unrelated `rich` vendored emoji codes. It is not a fixture, and it dirtied the tree on every session. |
+| `prds/evidence/**` (25 `.py` probes, 11 `.md`, 24 recorded transcripts) | **tracked, deliberately** | This is not throwaway scratch. PRDs 02–08 cite the `E-nnn` ids these probes print *in place of prose assertions*, and `prds/evidence/run_all.py` records every transcript and **fails when a cited id is emitted by no probe** (PRD 06 §6; GOALS.md ground rule 2 also points at it for the `PYTHONPATH` pin). Deleting or ignoring it would break the citation chain the PRDs rest on. |
+
+The goal text described `prds/evidence/**` as "throwaway probe scripts that
+`ruff check .` rejects (317 errors)". The error count is accurate but the
+inference is not: **316 of those 317 errors are in `prds/evidence/` simply
+because that directory is outside the `lint` session's targets**
+(`lauren_di tests scripts noxfile.py`), so `ruff check .` measures a scope the
+gate never claims. The one remaining error is `prds/check_consistency.py`, which
+goal 36 owns. A lint-scope mismatch is not evidence that cited evidence should
+be deleted, so the files stay and the `.gitignore` records why.
+
+`tests/unit/test_gitignore_contract.py` now enforces both decisions in both
+directions, so neither can silently flip:
+
+* `tests/.cassette/…` is in `ARTEFACTS` (must be ignored) **and**
+  `test_the_cassette_is_ignored_and_untracked` asserts `git ls-files` returns
+  nothing for it;
+* `EVIDENCE_BASE` (six representative probe/transcript paths) must exist, must
+  **not** be ignored, and must be **in the index** — `git rm --cached
+  prds/evidence/run_all.py` fails the suite.
+
+Drilled both ways: re-adding `tests/.cassette/x/cassette.jsonl` with
+`git add -f` fails with `an agent session recording is committed: […]`;
+`git rm --cached prds/evidence/run_all.py` fails with `the evidence base is not
+fully tracked; missing from the index: ['prds/evidence/run_all.py']`. Both
+reverted.
+
+### The documented test count moved, and the goal-31 gate caught it
+
+This goal added nine tests to `tests/unit/test_gitignore_contract.py` (six
+parametrised evidence-base cases plus three decision tests), which changed the
+collected total under AGENTS.md's feet. `nox -s ci` failed on **all five**
+interpreters in `tests/unit/test_documented_test_count.py` with
+
+```text
+E  AssertionError: AGENTS.md's quick start implies 451 tests on Python 3.13,
+   but `pytest -q --ignore=tests/parity` collects 460.
+```
+
+which is the gate from goal 31 doing exactly what it was built for: the number
+is a checked claim, so it could not drift silently when the suite grew. The line
+is now
+
+```text
+pytest -q   # full suite: 460 tests (435 on 3.10); +52 parity with ../lauren-framework
+```
+
+reconciled against measurement rather than arithmetic: base 460 (`--ignore=tests/parity`),
+full 512 (460 + 52 parity), and 460 − 435 = 25 = the size of
+`tests/unit/test_readme_contract.py`, the module that does not collect on 3.10
+because `tomllib` is stdlib only from 3.11. `prds/evidence/31-documented-test-count.md`
+keeps the 451/426 figures it recorded at the time, since it is a dated record of
+that goal; this note is the pointer that they have since moved.

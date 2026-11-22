@@ -19,6 +19,11 @@ matcher:
   without also being ignored here.
 * ``TRACKED`` — files the repository ships; none may be ignored, and each must
   exist, so the list cannot rot into fiction.
+* ``EVIDENCE_BASE`` — the ``prds/evidence/`` probes and their recorded
+  transcripts, which **must** stay tracked. They look like scratch and
+  ``ruff check .`` reports errors in them, but PRDs 02-08 cite the ``E-nnn`` ids
+  they emit, so the opposite decision from ``tests/.cassette/`` is asserted in
+  both directions: the probes are in the index, the transcript is not.
 
 ``test_matcher_agrees_with_git`` keeps the matcher itself honest: it runs real
 ``git check-ignore --no-index`` over the same paths in a throwaway repository
@@ -65,6 +70,9 @@ ARTEFACTS: tuple[str, ...] = (
     "tests/unit/__pycache__/test_scopes.cpython-314-pytest-8.0.0.pyc",
     "scripts/__pycache__/build_reference.cpython-313.pyc",
     ".agenthicc/session.json",
+    "tests/.cassette/001c32cb-ec13-4771-a20c-162c3df871a1/cassette.jsonl",
+    "tests/.cassette/001c32cb-ec13-4771-a20c-162c3df871a1/approvals.jsonl",
+    "tests/.cassette/001c32cb-ec13-4771-a20c-162c3df871a1/meta.json",
     ".venv/bin/python",
     ".DS_Store",
 )
@@ -113,6 +121,23 @@ TRACKED: tuple[str, ...] = (
     "tests/packaging/test_wheel.py",
     "tests/typing/reveal_resolve.py",
     "tests/unit/test_gitignore_contract.py",
+)
+
+#: The evidence base **ships**, which is the opposite decision from
+#: ``tests/.cassette/`` even though both look like scratch. PRDs 02-08 cite the
+#: ``E-nnn`` ids these probes print instead of asserting in prose, and
+#: ``run_all.py`` fails when a cited id is emitted by no probe (PRD 06 §6), so
+#: ignoring or deleting this directory would break the citation chain that the
+#: PRDs rest on. ``ruff check .`` reporting errors here is a *lint-scope* fact —
+#: the ``lint`` session targets ``lauren_di tests scripts noxfile.py`` — not a
+#: reason to drop the files.
+EVIDENCE_BASE: tuple[str, ...] = (
+    "prds/evidence/run_all.py",
+    "prds/evidence/README.md",
+    "prds/evidence/prd04/a.py",
+    "prds/evidence/prd06/m1.py",
+    "prds/evidence/output/ids.json",
+    "prds/evidence/output/prd04/a.out",
 )
 
 
@@ -230,4 +255,56 @@ def test_matcher_agrees_with_git(patterns: list[str], tmp_path: pathlib.Path) ->
         "the test's matcher and git disagree; "
         f"only in matcher: {sorted(by_matcher - by_git)}, "
         f"only in git: {sorted(by_git - by_matcher)}"
+    )
+
+
+def _tracked(paths: tuple[str, ...] | list[str]) -> set[str]:
+    """The subset of ``paths`` that git has in the index."""
+    completed = subprocess.run(
+        ["git", "-C", str(ROOT), "ls-files", "--", *paths],
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    assert completed.returncode == 0, f"git ls-files failed: {completed.stderr}"
+    return set(completed.stdout.split())
+
+
+@pytest.mark.parametrize("path", EVIDENCE_BASE)
+def test_the_evidence_base_is_not_ignored(path: str, patterns: list[str]) -> None:
+    """Probe scripts and their transcripts must stay committed.
+
+    The PRDs cite the ``E-nnn`` ids these files emit, so ignoring them would break
+    the citation chain in a way nothing else in CI would notice.
+    """
+    assert (ROOT / path).exists(), f"{path} is the evidence base but is missing"
+    assert not is_ignored(path, patterns), (
+        f"{path} must be committed, but .gitignore excludes it \u2014 the probes are cited evidence, not scratch"
+    )
+
+
+def test_the_evidence_base_is_in_the_index() -> None:
+    """Existing on disk is not enough: git must actually track the probes."""
+    tracked = _tracked(EVIDENCE_BASE)
+    missing = sorted(set(EVIDENCE_BASE) - tracked)
+    assert not missing, f"the evidence base is not fully tracked; missing from the index: {missing}"
+
+
+def test_the_cassette_is_ignored_and_untracked(patterns: list[str]) -> None:
+    """The opposite decision: an agent transcript is ignored *and* out of the index."""
+    cassette = [path for path in ARTEFACTS if path.startswith("tests/.cassette/")]
+    assert cassette, "ARTEFACTS must name the cassette files, or this test is vacuous"
+    for path in cassette:
+        assert is_ignored(path, patterns), f"{path} must be ignored"
+    tracked = _tracked(["tests/.cassette"])
+    assert not tracked, f"an agent session recording is committed: {sorted(tracked)}"
+
+
+def test_the_two_scratch_decisions_are_explained() -> None:
+    """The file records why ``.cassette/`` is ignored while ``prds/evidence/`` is not."""
+    text = GITIGNORE.read_text(encoding="utf-8")
+    assert "tests/.cassette/" in text, ".gitignore must ignore the agent transcript"
+    assert "prds/evidence/" in text, (
+        ".gitignore must record that prds/evidence/ is deliberately tracked, so the next "
+        "reader does not 'clean up' the probes the PRDs cite"
     )

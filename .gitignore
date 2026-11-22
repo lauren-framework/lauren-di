@@ -77,3 +77,9 @@ Thumbs.db
 .aider*
 .continue/
 .codemap
+# A recorded agent session: `cassette.jsonl` is a verbatim transcript and
+# `approvals.jsonl` its tool-approval log. Neither is a test fixture — nothing
+# in the repository reads the directory (grep finds no consumer), and it dirties
+# the working tree on every run. Deliberately *not* the same decision as
+# `prds/evidence/`, which is tracked because PRDs 02-08 cite its probe ids.
+tests/.cassette/
