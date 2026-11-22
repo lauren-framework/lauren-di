@@ -124,11 +124,11 @@ _PRD_SECTION = re.compile(r"\bPRDs?\s+(\d+)\s*(?:§|section\s*)(\d+(?:\.\d+)*)")
 def check_cross_refs() -> None:
     # Every ``PRD NN`` citation, with or without a section. The number is
     # deliberately not capped at one digit: the check used to read only
-    # ``PRD 0N §x``, so a reference to a document that does not exist matched
-    # nothing and was skipped in silence — ``PRD 10 §3``, or the section-less
-    # ``PRD 10's docs contract`` that PRD 01's G8 row carried for months. That is
-    # the same "well-formed but unchecked" failure the ``owners`` check was
-    # written for, one document over.
+    # ``PRD 0N §x``, so a citation of a document that does not exist matched
+    # nothing and was skipped in silence — a two-digit number naming no file,
+    # or a section-less "…'s docs contract" such as PRD 01's G8 row carried for
+    # months (goal #41). That is the same "well-formed but unchecked" failure
+    # the ``owners`` check was written for, one document over.
     docs = {p.name[:2]: p for p in PRDS}
     sections_of = {key: headings(path) for key, path in docs.items()}
     mentioned = 0

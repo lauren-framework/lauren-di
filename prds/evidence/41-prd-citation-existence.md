@@ -135,3 +135,21 @@ stated rule for what `02–07` means when a document is missing from the middle.
 It also does not check `PRD §5.4` (a section with no document number): the
 corpus has none, and guessing which document such a reference means is exactly
 the kind of inference that produced the defect this goal fixes.
+
+## Where the literal still appears
+
+`grep -rn "PRD 10" prds/` returns hits **only in this file** — the quotations of
+the defect above (the old G8 cell and the drill transcripts). The corpus itself
+is clean:
+
+```
+$ grep -rn "PRD 10" prds/0*.md prds/README.md prds/check_consistency.py
+(no output)
+```
+
+That is deliberate rather than a loophole. This file exists to record the defect,
+so it has to be able to name it — the same reason
+`prds/evidence/38-goals-numbering.md` quotes the duplicate `### #36` heading its
+own rule now rejects. `prds/evidence/` is outside the checker's corpus
+(`prds/[0-9][0-9]-*.md`) and outside the docs contract's file set, so a quotation
+here is not a citation any gate resolves.
