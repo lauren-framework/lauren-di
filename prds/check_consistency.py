@@ -287,28 +287,29 @@ def check_scope() -> None:
     notes.append("scope: no web-framework imports; unguarded `import lauren` samples: 0")
 
 
-def _goal_texts() -> dict[int, str]:
-    """Goal number -> the words ``GOALS.md`` uses to describe that goal.
+def _registry_entries() -> list[tuple[int, str]]:
+    """Every ``#NN`` registration in §2/§3, as ``(number, description)``.
+
+    In file order, and **with duplicates preserved**: a position registered twice
+    is the collision this module exists to catch, and a dict built straight from
+    the rows would silently keep whichever row came last — which is how §4's
+    ``#36`` came to denote two goals while every table still lined up.
 
     ``GOALS.md`` is the only in-repo description of a goal, and it is versioned
     with the code, so it is the stable thing a reference can be checked against.
-    The two tables describe goals differently -- #1-#22 by range, #23-#37 one row
-    each -- so ranges are expanded and each table's descriptive cell is picked by
+    The two tables describe goals differently — #1-#22 by range, #23-#38 one row
+    each — so ranges are expanded and each table's descriptive cell is picked by
     position rather than by guessing.
-
-    Programme items (``### P1 — …``) are deliberately absent: they hold no runner
-    position yet, so a reference may not point at one with ``#NN``. Their own
-    resolution is checked by ``_check_goal_numbering``.
     """
     if not GOALS.exists():
-        return {}
+        return []
     text = GOALS.read_text()
     sections = {
         "closed": text.split("## 2.")[1].split("## 3.")[0],
         "carried": text.split("## 3.")[1].split("## 4.")[0],
     }
 
-    out: dict[int, str] = {}
+    out: list[tuple[int, str]] = []
 
     def spread(cell: str, description: str) -> None:
         # ``#2–#6`` in the closed table, ``34–35`` in the carried one.
@@ -318,7 +319,7 @@ def _goal_texts() -> dict[int, str]:
         lo = int(m.group(1))
         hi = int(m.group(2) or lo)
         for n in range(lo, hi + 1):
-            out[n] = description
+            out.append((n, description))
 
     # ``| #2–#6 | Delivered | Evidence |``
     for row in re.findall(r"^\|(.+)\|$", sections["closed"], re.M):
@@ -331,6 +332,19 @@ def _goal_texts() -> dict[int, str]:
         if len(cells) >= 3:
             spread(cells[0], cells[2])
     return out
+
+
+def _goal_texts() -> dict[int, str]:
+    """Goal number -> the words ``GOALS.md`` uses to describe that goal.
+
+    A projection of ``_registry_entries()``; the collisions that projection would
+    hide are reported by ``_check_goal_numbering``.
+
+    Programme items (``### P1 — …``) are deliberately absent: they hold no runner
+    position yet, so a reference may not point at one with ``#NN``. Their own
+    resolution is checked by ``_check_goal_numbering``.
+    """
+    return dict(_registry_entries())
 
 
 #: ``### #36 — Title`` (a queued goal) or ``### P1 — Title`` (a programme item).
@@ -363,8 +377,9 @@ def _check_goal_numbering() -> tuple[int, int]:
 
     The rule is structural, so it is checkable:
 
-    * a ``#NN`` is *registered* by a row in §2 or §3, and a heading may not reuse a
-      registered number (that is the collision);
+    * a ``#NN`` is *registered* by exactly one row in §2 or §3 — a position
+      registered twice is the collision, whether the second registration is a
+      table row or a heading;
     * §4's headings are ``PN`` and no heading outside §4 may be one;
     * every ``#NN`` and every ``PN`` written anywhere in the file resolves to an id
       the file defines, so a citation can never point at nothing.
@@ -379,6 +394,16 @@ def _check_goal_numbering() -> tuple[int, int]:
     if not registered:
         fail("owners", f"cannot read goal descriptions from {GOALS}")
         return 0, 0
+    registered_at: dict[int, str] = {}
+    for identifier, description in _registry_entries():
+        if identifier in registered_at:
+            fail(
+                "owners",
+                f"{GOALS.name}: position #{identifier} is registered twice in §2/§3 — "
+                f"as {registered_at[identifier]!r} and as {description!r}",
+            )
+        else:
+            registered_at[identifier] = description
     if PROGRAMME_SECTION not in text:
         fail("owners", f"{GOALS.name} has no '{PROGRAMME_SECTION}' programme section")
         return 0, 0

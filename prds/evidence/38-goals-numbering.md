@@ -25,7 +25,8 @@ rule itself was a promise in prose, not a property the file has.
 | File | Change |
 | --- | --- |
 | `GOALS.md` | §3 "Carried" widened from `#23–#37` with verified rows for #36 (the `prds` gate) and #37 (the lint scope); §4 retitled "programme items **P1–P12**, none of them queued yet" and its twelve headings renumbered `#36–#46` → `P1–P12`; §5's dependency graph renumbered to `P1…P12`; the status header rewritten to drop the old "goal numbers are stable" claim and to state the two-namespace rule and what the checker now enforces; the closing note no longer cites a position it cannot show |
-| `prds/check_consistency.py` | `_goal_texts()` stops parsing `### #NN` programme headings and handles `PN` items plus queued `#NN`; `check_owners()` now validates both halves of every baseline reference *and* owns the file's numbering (`_check_goal_numbering`); the `owners` summary line reports `'#NN'` and `'P<n>'` references separately |
+| `prds/check_consistency.py` | `_goal_texts()` stops parsing `### #NN` programme headings and handles `PN` items plus queued `#NN`; it is now a projection of `_registry_entries()`, which returns every §2/§3 registration **with duplicates preserved**; `check_owners()` validates both halves of every baseline reference *and* owns the file's numbering (`_check_goal_numbering`); the `owners` summary line reports `'#NN'` and `'P<n>'` references separately |
+| `tests/unit/test_goal_numbering_contract.py` | nine tests that drive `_check_goal_numbering` over synthetic plans, so each rule is pinned by the plan it rejects instead of by the current corpus happening to trip it; the real `GOALS.md` is never touched |
 
 The rule, as the checker now enforces it:
 
@@ -66,6 +67,35 @@ exit=1
 exit=0
 ```
 
+The tables had a second door, found by adversarially re-verifying this goal after
+the first commit: a position registered **twice inside §2/§3** was accepted,
+because `_goal_texts()` built a dict and the later row silently overwrote the
+earlier one — the same "one number, two goals" defect, in the registry rather
+than in the headings. `_registry_entries()` now preserves duplicates and
+`_check_goal_numbering()` fails on a second registration:
+
+```
+--- DRILL F: a second '| 30 | **verified** |' row in §3
+exit=1
+  FAIL [owners] GOALS.md: position #30 is registered twice in §2/§3 —
+       as '"Zero broken relative links" is a gate: `scripts/check_docs_contract.py` …'
+       and as 'a second goal claiming position 30'
+
+--- DRILL G: §2's '| #22 |' row widened to '| #22–#23 |', so §3's #23 is claimed twice
+exit=1
+  FAIL [owners] GOALS.md: position #23 is registered twice in §2/§3 —
+       as 'Final conformance pass, all five interpreters, ratchet raised'
+       and as '`DIContainer.scope` returns `-> ResolutionScope`; …'
+
+--- DRILL H: restored file
+exit=0
+```
+
+`tests/unit/test_goal_numbering_contract.py` pins all of it, and the pin is
+load-bearing: deleting the duplicate-registration rule from the checker fails
+exactly two of its nine tests (`an overlapping range row was accepted`,
+`assert []`), and restoring it turns them green again.
+
 Drill A is the original defect reproduced: put §4's old heading back and the
 check names both halves — the heading is in the wrong namespace and the `P1`
 references it used to satisfy now point at nothing.
@@ -75,7 +105,7 @@ references it used to satisfy now point at nothing.
 ```
 $ python prds/check_consistency.py
   ok   owners: 26 baseline owner reference(s) resolve to the goal that closed them;
-       67 '#NN' and 74 'P<n>' reference(s) in GOALS.md resolve inside one namespace
+       70 '#NN' and 74 'P<n>' reference(s) in GOALS.md resolve inside one namespace
 
 all checks passed
 
@@ -87,7 +117,7 @@ $ python scripts/check_docs_contract.py
 OK: 15 documentation file(s) satisfy the contract (50 relative link(s) resolved)
 
 $ python -m pytest -q
-571 passed in 23.72s
+580 passed
 
 $ nox -s ci
 ci: all sessions passed
@@ -95,8 +125,9 @@ ci: all sessions passed
 
 The baseline figure is unchanged at 26 references — the `owners` check was
 widened, not loosened, and no existing reference had to be re-pointed. The
-`'#NN'` count fell by one only because the closing note no longer cites a
-position it cannot show.
+`'#NN'` count moved 68 → 70: one fell away because the closing note no longer
+cites a position it cannot show, and three were added by the #38 row that
+registers this goal (its own `#36`, `#37` and `#38` citations).
 
 ## What this goal does *not* claim
 
