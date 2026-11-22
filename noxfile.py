@@ -86,6 +86,21 @@ MYPY_VERSION = "1.20.2"
 #: pyright ships as a Node package; `nox -s typing` runs it through `npx`.
 PYRIGHT_VERSION = "1.1.390"
 
+#: The one file pyright must *reject* (PRD 01 §5.6), and the rule it must report
+#: on it. The file sits outside every root `[tool.pyright] include` and
+#: `[tool.mypy] files` name, because a run that must stay green cannot contain a
+#: line a checker is supposed to reject — and pyright applies `exclude` to an
+#: explicitly-named file too (measured: with the directory in `exclude`, the
+#: explicit run reports `0 errors` and exits 0), so "exclude it, then analyse it"
+#: is not a shape that works. Being outside the roots *is* the exclusion, and
+#: `tests/unit/test_noxfile_contract.py` derives that from `pyproject.toml`
+#: rather than trusting the path.
+PYRIGHT_NEGATIVE = TESTS_DIR / "typing_negative" / "resolve_misuse.py"
+
+#: The rule the negative run must see. "It exited non-zero" is not enough: a
+#: syntax error or an unresolved import exits non-zero too.
+PYRIGHT_NEGATIVE_RULE = "reportAssignmentType"
+
 #: What ``lint`` and ``format`` check. One tuple, so the two sessions cannot
 #: disagree about the corpus they cover.
 #:
@@ -278,6 +293,69 @@ def _run_pyright(session: nox.Session) -> None:
         )
 
 
+def _run_pyright_negative(session: nox.Session) -> None:
+    """Prove pyright still rejects §5.6's misuse, by requiring it to fail.
+
+    The green run above must report zero errors, so the line §5.6 says pyright
+    rejects cannot live in it; before this step the rejection was only *recorded*
+    in ``prds/evidence/29-resolve-overload-asymmetry.md``, and a recorded outcome
+    is not a gate. This runs the same pinned pyright, in the same strict mode (an
+    explicitly-named file still reads ``pyproject.toml`` from the project root —
+    measured), over one file no include set names, and turns success into failure.
+
+    What it is *sensitive* to is narrower than "the overloads", and the two
+    checkers are sensitive to different halves — measured, by re-breaking the
+    pair and re-running this session:
+
+    * pyright takes the **first** overload that matches, so a class token resolves
+      through ``type[T] -> T`` and the conflict is reported whatever the fallback
+      says. Reverting the fallback to ``token: Any`` still reports ``1 error`` and
+      exits 1 here. That half belongs to mypy, which weighs the assignment's
+      declared type when it chooses an overload, and it is proven separately in
+      ``tests/unit/test_resolve_contract.py``.
+    * Widening the *typed* overload's return to ``Any`` — or deleting it, or
+      ordering it after the fallback — makes pyright accept the line: ``0 errors``,
+      exit 0, and this step goes red. That is the regression this step exists for,
+      so its failure message names it rather than the fallback.
+    """
+    npx = shutil.which("npx")
+    if npx is None:
+        session.error(
+            "pyright is unavailable: `npx` is not on PATH. PRD 01 §5.6 says both "
+            "checkers reject `number: int = await container.resolve(Config)`, so "
+            "this session fails rather than passing without proving it. Install "
+            "Node.js (which provides `npx`) and re-run `nox -s typing`."
+        )
+        return  # unreachable: session.error raises
+    completed = subprocess.run(
+        [npx, "--yes", f"pyright@{PYRIGHT_VERSION}", str(PYRIGHT_NEGATIVE)],
+        cwd=ROOT,
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    output = f"{completed.stdout}{completed.stderr}".strip()
+    session.log(output)
+    if completed.returncode == 0:
+        session.error(
+            f"pyright accepted {PYRIGHT_NEGATIVE.name}, so §5.6's claim is false: "
+            "`number: int = await container.resolve(Config)` must be reported. "
+            "pyright takes the first overload that matches, so check the typed one "
+            "(`token: type[T] -> T`) first: deleted, ordered after the fallback, or "
+            "with its return widened to `Any`, it no longer reports the conflict. "
+            "(The fallback's own spelling is not what this step watches — a "
+            "`token: Any` fallback is still rejected here; that half is mypy's and "
+            "is proven in tests/unit/test_resolve_contract.py.)"
+        )
+        return
+    if PYRIGHT_NEGATIVE_RULE not in output:
+        session.error(
+            f"pyright failed on {PYRIGHT_NEGATIVE.name} without reporting "
+            f"{PYRIGHT_NEGATIVE_RULE}, so it did not reject the misuse — it could "
+            f"not read the file. Output:\n{output or '<none>'}"
+        )
+
+
 @nox.session(python=PRIMARY_PYTHON, reuse_venv=True)
 def typing(session: nox.Session) -> None:
     """Type-check the package and the §5.4 fixtures with mypy *and* pyright.
@@ -288,6 +366,11 @@ def typing(session: nox.Session) -> None:
 
     Both checkers read their settings from ``pyproject.toml`` (``[tool.mypy]``
     and ``[tool.pyright]``), so the gate and an editor agree by construction.
+
+    Two directions, not one. The green run must report zero errors, and
+    :func:`_run_pyright_negative` must report exactly the one error §5.6 says
+    pyright raises: a gate that only proves the corpus is clean cannot tell a
+    working overload pair from one whose rejection silently stopped happening.
     """
     _install_package(session, "dev")
     session.install(f"mypy=={MYPY_VERSION}")
@@ -299,6 +382,7 @@ def typing(session: nox.Session) -> None:
         str(TESTS_DIR / "typing"),
     )
     _run_pyright(session)
+    _run_pyright_negative(session)
 
 
 # ---------------------------------------------------------------------------

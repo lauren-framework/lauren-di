@@ -23,6 +23,7 @@ graph of the library itself.
 
 from __future__ import annotations
 
+import ast
 import json
 import pathlib
 import re
@@ -743,3 +744,159 @@ def test_lint_and_format_check_the_same_corpus(noxfile: Any) -> None:
     format_commands = [cmd for cmd in format_session.commands if cmd[:2] == ["ruff", "format"]]
     assert len(format_commands) == 1, f"expected one `ruff format`, got {format_commands}"
     assert format_commands[0][-len(targets) :] == targets
+
+
+# ---------------------------------------------------------------------------
+# PRD 01 §5.6 — the pyright half of the `resolve` rejection
+# ---------------------------------------------------------------------------
+
+
+def _table(text: str, header: str) -> str:
+    """The body of one TOML table, up to the next table header."""
+    lines = text.splitlines()
+    assert header in lines, f"pyproject.toml has no {header} table"
+    start = lines.index(header) + 1
+    end = next(
+        (index for index in range(start, len(lines)) if lines[index].lstrip().startswith("[")),
+        len(lines),
+    )
+    return "\n".join(lines[start:end])
+
+
+def _string_list(table: str, key: str) -> list[str]:
+    """``key = [...]`` from a table body, or ``[]`` when the key is absent.
+
+    ``tomllib`` is stdlib only from 3.11 and this module must run on 3.10, so the
+    value is read with ``ast.literal_eval`` — the lists here hold strings only.
+    """
+    match = re.search(rf"^{key}\s*=\s*(\[[^\]]*\])", table, re.MULTILINE)
+    if match is None:
+        return []
+    value = ast.literal_eval(match.group(1))
+    assert isinstance(value, list), f"{key} is not a list: {value!r}"
+    return [str(item) for item in value]
+
+
+def test_the_typing_session_proves_pyright_rejects_the_documented_misuse(
+    noxfile: Any, no_install: None, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """§5.6's pyright half must be a *step*, not a recorded outcome.
+
+    The rejection used to live only in
+    ``prds/evidence/29-resolve-overload-asymmetry.md``, and prose in evidence
+    cannot go red when the overload pair changes. Dropping the step would put it
+    back there silently, so the order is asserted too: the green corpus first,
+    then the file that must fail.
+    """
+    ran: list[str] = []
+    monkeypatch.setattr(noxfile, "_run_pyright", lambda session: ran.append("green"))
+    monkeypatch.setattr(noxfile, "_run_pyright_negative", lambda session: ran.append("negative"))
+
+    noxfile.typing(FakeSession())
+
+    assert ran == ["green", "negative"], (
+        "`nox -s typing` must run pyright twice — over the green corpus and over the "
+        f"file it is supposed to reject — in that order; it ran {ran}"
+    )
+
+
+def test_the_negative_fixture_still_holds_the_line_the_prd_forbids(noxfile: Any) -> None:
+    """The fixture cannot be defanged into passing: it must carry the misuse."""
+    assert noxfile.PYRIGHT_NEGATIVE.is_file(), f"{noxfile.PYRIGHT_NEGATIVE} is missing"
+
+    source = noxfile.PYRIGHT_NEGATIVE.read_text(encoding="utf-8")
+
+    assert "number: int = await container.resolve(Config)" in source, (
+        "the negative fixture no longer contains the assignment §5.6 says both "
+        f"checkers reject, so the gate would pass without proving anything:\n{source}"
+    )
+
+
+def test_the_negative_fixture_sits_outside_every_checked_root(noxfile: Any) -> None:
+    """Outside the roots, not merely in an ``exclude`` list — that shape cannot work.
+
+    Measured: with the directory in ``[tool.pyright] exclude``, an
+    explicitly-named run of the file reports ``0 errors`` and exits 0, so
+    "exclude it and then analyse it" would make the negative step fail forever.
+    The roots are read from ``pyproject.toml`` rather than assumed, so adding
+    ``tests/`` to either checker would fail here instead of turning the green run
+    red on a line it is supposed to reject.
+    """
+    config = PYPROJECT.read_text(encoding="utf-8")
+    roots = _string_list(_table(config, "[tool.pyright]"), "include") + _string_list(
+        _table(config, "[tool.mypy]"), "files"
+    )
+    assert roots, "neither checker declares an include/files root"
+
+    target = noxfile.PYRIGHT_NEGATIVE.resolve()
+    covered = [root for root in roots if target.is_relative_to((NOXFILE.parent / root).resolve())]
+
+    assert not covered, (
+        f"{covered} covers {noxfile.PYRIGHT_NEGATIVE}, so the green typing run would "
+        "fail on the very line it is meant to reject; move the fixture outside every "
+        "checked root"
+    )
+
+
+def test_the_negative_step_refuses_to_pass_without_pyright(
+    noxfile: Any, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A missing toolchain fails the session, exactly as the green run does."""
+    monkeypatch.setattr(noxfile.shutil, "which", lambda name: None)
+
+    with pytest.raises(AssertionError, match="npx"):
+        noxfile._run_pyright_negative(FakeSession())
+
+
+@pytest.mark.parametrize(
+    ("returncode", "output", "message"),
+    [
+        # pyright accepted the misuse: the §5.6 claim is false.
+        (0, "0 errors, 0 warnings, 0 informations", "accepted"),
+        # Non-zero for the wrong reason — a syntax error is not the rejection.
+        (1, "error: Expected expression (reportSyntaxError)", "reportAssignmentType"),
+    ],
+)
+def test_the_negative_step_only_passes_on_the_rejection_it_expects(
+    noxfile: Any,
+    monkeypatch: pytest.MonkeyPatch,
+    returncode: int,
+    output: str,
+    message: str,
+) -> None:
+    """Both ways the step could go green without proving anything."""
+    monkeypatch.setattr(noxfile.shutil, "which", lambda name: "/usr/bin/npx")
+    monkeypatch.setattr(
+        noxfile.subprocess,
+        "run",
+        lambda *args, **kwargs: subprocess.CompletedProcess(
+            args=[], returncode=returncode, stdout=output, stderr=""
+        ),
+    )
+
+    with pytest.raises(AssertionError, match=message):
+        noxfile._run_pyright_negative(FakeSession())
+
+
+def test_the_negative_step_accepts_the_rejection_it_expects(
+    noxfile: Any, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """And the shape it *is* meant to pass on, so the step is not a permanent red."""
+    monkeypatch.setattr(noxfile.shutil, "which", lambda name: "/usr/bin/npx")
+    rejection = (
+        'error: Type "Config" is not assignable to declared type "int" (reportAssignmentType)'
+    )
+    monkeypatch.setattr(
+        noxfile.subprocess,
+        "run",
+        lambda *args, **kwargs: subprocess.CompletedProcess(
+            args=[], returncode=1, stdout=rejection, stderr=""
+        ),
+    )
+    session = FakeSession()
+
+    noxfile._run_pyright_negative(session)
+
+    assert any("reportAssignmentType" in line for line in session.logs), (
+        f"the rejection was not logged, so a failing run could not be diagnosed: {session.logs}"
+    )
