@@ -85,7 +85,7 @@ Each drill was run, observed, and reverted.
 ## Result
 
 `python -m pytest tests/docs/test_depends_spelling.py -q` → 6 passed, 68 python modules and
-213 fenced blocks scanned. Full suite 603 passed (551 without `tests/parity`), so AGENTS.md's
+212 fenced blocks scanned. Full suite 603 passed (551 without `tests/parity`), so AGENTS.md's
 quick-start figures moved 548/522 → 551/525.
 
 `nox -s lint format docs_contract llms_check prds` → all green.
