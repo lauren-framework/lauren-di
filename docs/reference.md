@@ -250,6 +250,14 @@ stand in either — `Depends[T]` would then mean the wrapper rather than
 codebase annotates the resolved type, which is the same token (PRD 01
 §5.5).
 
+There is exactly **one** subscription path.  `Depends` is an
+*instance*, so `Depends[T]` dispatches to `__getitem__` on it; the
+private class is never subscripted, so it deliberately defines no
+`__class_getitem__`.  One was carried for a while and never ran — an
+unreachable branch on the single path that must stay identity-only is a
+liability, not a feature — so it was deleted rather than exercised, and
+this class is intentionally not subscriptable as a type (PRD 04 §5.2).
+
 <!-- docs-contract: run -->
 ```python
 from lauren_di import Depends

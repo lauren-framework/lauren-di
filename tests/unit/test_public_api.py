@@ -360,6 +360,38 @@ def test_depends_is_a_spelling_alias_not_a_marker() -> None:
     assert repr(lauren_di.Depends) == "Depends"
 
 
+def test_depends_has_exactly_one_subscription_path() -> None:
+    """The class-level branch was deleted, not exercised (goal #42).
+
+    ``_DependsAlias`` carried a ``__class_getitem__`` that nothing could reach:
+    ``Depends`` is an *instance*, so ``Depends[X]`` dispatches to
+    ``__getitem__``, and the private class is never subscripted anywhere in the
+    repo. It sat as the module's only uncovered line. Pinning it with a test
+    would have made a private, unreachable branch look like contract and left a
+    second path a reader could mistake for the supported one, so the decision
+    was deletion — recorded in ``prds/evidence/42-depends-alias-dead-branch.md``
+    and restated in PRD 04 §5.2.
+
+    This test fails if the branch comes back, and it also states the shape
+    positively: the one supported path is instance subscription.
+    """
+    alias_type = type(lauren_di.Depends)
+
+    # The supported path: subscribing the instance evaluates to its argument.
+    assert lauren_di.Depends[_Sample] is _Sample
+
+    # The removed path: the class is not subscriptable, and defines no hook that
+    # would make it so. Both halves are asserted because a class could regain
+    # subscriptability through a metaclass or an inherited ``__class_getitem__``
+    # without the name appearing in its own ``__dict__``.
+    assert "__class_getitem__" not in vars(alias_type), (
+        "`_DependsAlias` regained a class-level subscription path; `Depends` is an "
+        "instance, so nothing reaches it (PRD 04 §5.2, goal #42)"
+    )
+    with pytest.raises(TypeError):
+        alias_type[_Sample]
+
+
 def test_depends_accepts_a_token_no_type_could_name() -> None:
     """§5.5: the spelling is evaluated, so its argument need not be a type at all.
 

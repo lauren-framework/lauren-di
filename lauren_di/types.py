@@ -70,14 +70,19 @@ class _DependsAlias:
     ``T``, and a function provider is not a valid type argument — so a typed
     codebase annotates the resolved type, which is the same token (PRD 01
     §5.5).
+
+    There is exactly **one** subscription path.  :data:`Depends` is an
+    *instance*, so ``Depends[T]`` dispatches to :meth:`__getitem__` on it; the
+    private class is never subscripted, so it deliberately defines no
+    ``__class_getitem__``.  One was carried for a while and never ran — an
+    unreachable branch on the single path that must stay identity-only is a
+    liability, not a feature — so it was deleted rather than exercised, and
+    this class is intentionally not subscriptable as a type (PRD 04 §5.2).
     """
 
     __slots__ = ()
 
-    def __class_getitem__(cls, item: Any) -> Any:
-        return item
-
-    def __getitem__(self, item: Any) -> Any:  # pragma: no cover - instance form
+    def __getitem__(self, item: Any) -> Any:
         return item
 
     def __repr__(self) -> str:

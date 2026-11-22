@@ -267,9 +267,13 @@ Rules:
    `ExtractionMarker` base class is carried, and `Depends` is not itself a token (D-25).
 
 `Depends` is a single instance, not a class: `Depends[X]` subscribes the *instance* through
-`__getitem__`, so the identity contract lives in one method. (The private class also defines
-`__class_getitem__`, which nothing reaches: `Depends` is an instance and the class is not
-exported, so `Depends[X]` never takes that branch.) The whole contract is identity plus a
+`__getitem__`, so the identity contract lives in one method and there is exactly one
+subscription path. The private class deliberately does **not** define `__class_getitem__`:
+it carried one that nothing reached — `Depends` is an instance and the class is not
+exported, so `Depends[X]` never took that branch — and an unreachable branch on the single
+path that must stay identity-only is a liability rather than a feature, so it was deleted
+instead of being exercised (the decision and its coverage evidence are recorded in
+`prds/evidence/42-depends-alias-dead-branch.md`). The whole contract is identity plus a
 readable `repr`:
 
 ```python

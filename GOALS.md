@@ -65,7 +65,7 @@ The PRD 01 conformance programme. Evidence, in order:
 | #20–#21 | Parity suite (PRD 08 matrix); every gate wired into `nox -s ci` and CI | `tests/parity/`, `tests/unit/test_noxfile_contract.py` |
 | #22 | Final conformance pass, all five interpreters, ratchet raised | `prds/evidence/22-final-conformance.md` |
 
-## 3. Carried — goals #23–#41
+## 3. Carried — goals #23–#42
 
 | # | Status | Item |
 |---|---|---|
@@ -88,6 +88,7 @@ The PRD 01 conformance programme. Evidence, in order:
 | 39 | **verified** | PRD 03 §5.3 names the `ResolutionScope` the package ships: `active` → `closed` and `teardown_errors` → `errors` throughout the PRD (the PRD was amended to the shipped names, not the class to the PRD's), its example is now a `run` block that asserts `closed`/`errors` and the teardown itself, and `tests/docs/test_prd_03_examples.py` executes §5.3, compares its surface table to `dir(ResolutionScope)`, and rejects prose naming a member the class lacks; evidence in `prds/evidence/39-scope-member-names.md` |
 | 40 | **deleted** | Untrack `tests/.cassette/`: the directory is no longer in the tree and `.gitignore:85` already covers it, so the goal was satisfied before it ran; no separate evidence |
 | 41 | **verified** | Every `PRD NN` citation names a document on disk: PRD 01 §2's G8 row pointed at "PRD 10's docs contract" (the corpus is 01–08 and no 09 may exist), and `prds/check_consistency.py`'s `cross-refs` pattern matched only a single digit *and* a mandatory `§`, so that sentence was never even seen — it now has one pattern for document existence (`\bPRDs?\s+(\d+)`, any width, section or not) and one for the section, the corpus glob widens from `0*.md` to `[0-9][0-9]-*.md` so a two-digit document can be registered at all, and G8 names PRD 01 §10 row 3 and `tests/docs/test_prd_examples.py` in §10.1's words; evidence in `prds/evidence/41-prd-citation-existence.md` |
+| 42 | **verified** | `_DependsAlias.__class_getitem__` deleted rather than exercised: `Depends` is an *instance*, so `Depends[X]` only ever reaches `__getitem__`, and the class hook was `lauren_di/types.py`'s only uncovered line (`Missing: 78`) — the inverted `# pragma: no cover` that excluded the *reachable* method was removed in the same pass (removing it added two statements, neither missed), so the module is now 100% covered; PRD 04 §5.2 states the single-subscription-path rule instead of admitting a dead branch, and `tests/unit/test_public_api.py::test_depends_has_exactly_one_subscription_path` fails if the hook returns; evidence in `prds/evidence/42-depends-alias-dead-branch.md` |
 
 The positions still in the queue are deliberately **not** mirrored here: the queue is the only
 source of truth for what runs next, and a second copy of it would drift the way §4's numbering did.
