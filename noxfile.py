@@ -366,13 +366,15 @@ def docs(session: nox.Session) -> None:
 
 @nox.session(python=PRIMARY_PYTHON, reuse_venv=True, name="docs_contract")
 def docs_contract(session: nox.Session) -> None:
-    """Docs-as-tests: nav integrity, code blocks, API coverage, freshness.
+    """Docs-as-tests: nav integrity, links, code blocks, API coverage, freshness.
 
     Checks that every nav entry exists, that no page is orphaned, that every
-    fenced python block in ``README.md`` / ``docs/`` / ``llms*.txt`` compiles,
-    that blocks marked ``run`` execute, that every name in ``lauren_di.__all__``
-    has a section in ``docs/reference.md``, and that the page is still what
-    ``scripts/build_reference.py`` would write.
+    relative link in ``README.md`` / ``CONTRIBUTING.md`` / ``AGENTS.md`` /
+    ``CLAUDE.md`` / ``CHANGELOG.md`` / ``llms*.txt`` / ``docs/**/*.md`` resolves
+    (after stripping the ``#fragment``), that every fenced python block in the
+    compiled corpus compiles, that blocks marked ``run`` execute, that every name
+    in ``lauren_di.__all__`` has a section in ``docs/reference.md``, and that the
+    page is still what ``scripts/build_reference.py`` would write.
     """
     _install_package(session)
     session.run("python", str(SCRIPTS_DIR / "check_docs_contract.py"), *session.posargs)
