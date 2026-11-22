@@ -121,3 +121,4 @@ grammar.
 | `python -m pytest -q` | 646 collected (594 without the parity checkout; 620 / 568 on 3.10) |
 | `AGENTS.md` quick-start count | 584 / 558 / +52 → **594 / 568 / +52**, re-measured with `--collect-only` |
 | `nox -s ci` | green in 5 minutes — `ci: all sessions passed` (with `PRDS_EVIDENCE_REFERENCE=/tmp/ref-clean`) |
+| GitHub Actions on `43da4c3` | `lint`, `tests`, `docs` and `codeql` all `completed/success` |
