@@ -216,6 +216,63 @@ def subsections_of(section: Section) -> list[str]:
     return [title for _, title in _section_headings(text, offset=offset)]
 
 
+#: Every PRD page, in file order. The two-digit glob is the corpus: ``README.md``
+#: describes the set, and ``evidence/**`` holds probe scripts audited by
+#: ``prds/evidence/run_all.py --check``, so neither is a page whose examples a
+#: reader types.
+PRD_PAGES: tuple[pathlib.Path, ...] = tuple(sorted(PRD_PATH.parent.glob("[0-9][0-9]-*.md")))
+
+
+def collect_page(page: pathlib.Path) -> list[Example]:
+    """Every fenced python block in ``page``, in file order, whole page.
+
+    ``collect_section`` answers "what does this section promise"; this answers
+    "what does this *page* contain", which is what the corpus-wide ``run`` rule
+    needs: a ``run`` marker in PRD 04-08 must execute, not only one in the two
+    sections this harness happened to name.
+    """
+    text = page.read_text(encoding="utf-8")
+    headings = _section_headings(text, offset=0)
+    examples: list[Example] = []
+    for block in _CONTRACT.extract_blocks(text, page.name):
+        if block.language not in _CONTRACT.PYTHON_LANGUAGES:
+            continue
+        examples.append(
+            Example(
+                path=page.name,
+                line=block.line,
+                heading=_heading_for(block.line, headings),
+                markers=frozenset(block.markers),
+                source=block.source,
+            )
+        )
+    return examples
+
+
+def page_namespace(page: pathlib.Path) -> dict[str, Any]:
+    """A fresh namespace for ``page``: PRD 01's stand-ins, nothing else.
+
+    Only PRD 01 \u00a75.4 needs them (its preamble names the stand-ins); every other
+    page's ``run`` blocks are self-contained, and seeding them with PRD 01's
+    fixtures would hide a block that only *looks* self-contained.
+    """
+    if page.name == PRD_PATH.name:
+        return seed_namespace()
+    return {"__name__": f"prd_{page.stem}", "__file__": str(page)}
+
+
+def corpus_inventory(pages: tuple[pathlib.Path, ...] = PRD_PAGES) -> str:
+    """One line reporting what the whole PRD corpus contributed to this run."""
+    blocks = [example for page in pages for example in collect_page(page)]
+    runnable = sum(1 for example in blocks if is_runnable(example))
+    partial = sum(1 for example in blocks if example.markers & UNCHECKED_MARKERS)
+    unmarked = sum(1 for example in blocks if not example.markers)
+    return (
+        f"{len(blocks)} python block(s) in {len(pages)} page(s): "
+        f"{runnable} marked run, {partial} fragment/skip, {unmarked} unmarked"
+    )
+
+
 def inventory_of(section: Section, examples: list[Example] | None = None) -> str:
     """One line reporting what ``section`` contributed to this test run."""
     collected = collect_section(section) if examples is None else examples

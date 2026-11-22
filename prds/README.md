@@ -193,6 +193,13 @@ The final consistency pass (goal #10) checks, and this file records:
 5. **Scope discipline** — no PRD reintroduces an HTTP, routing, extractor,
    config, scheduling or module-graph concern except as an explicit
    compatibility note in 08.
+6. **PRD code blocks** (goal #50) — every fenced `python` block in
+   `prds/[0-9][0-9]-*.md` compiles, including the ones marked `fragment`/`skip`,
+   and every block carries a marker: `run` means a reader is meant to type it and
+   `tests/docs/test_prd_examples.py` executes it, `fragment` (or `skip`) means
+   deliberately partial. An unmarked block is a failure, because an unmarked
+   block is one no gate has decided about — which is how the corpus came to hold
+   88 blocks that nothing compiled or ran.
 
 Result of the last run: **passed** (2026-11-21, goal #10). Rerun with
 `python3 prds/check_consistency.py` — exit 0 means clean; the script *is* the check, not a
@@ -207,6 +214,7 @@ unguarded `from lauren import`) each make it exit 1.
 | Reference integrity | 0 dangling relative links; 117 `PRD 0N §x` cross-references resolve; D-1…D-56 defined exactly once, contiguous, no undefined citation, and no decision left in the `Open` state (40 remain `Proposed` by design — every one of them is a row in §4) |
 | Symbol consistency | curated table green: `shutdown()` return, `Depends[T] is T`, the public surface, `resolve` keywords, five override kinds and their scope-inheritance rows, `Scope` = 0/1/2, the 18-field `Provider`, and no `container.close()` |
 | Scope discipline | script-checked: no PRD imports a web framework, and in PRDs 01–07 a code sample may `import lauren` only inside PRD 02's `LAUREN_DI_PARITY_TARGET`-guarded shim (0 unguarded samples); `HTTP`/`ASGI` nouns otherwise appear only in non-goals, prior art and 08's compatibility notes |
+| PRD code blocks | 88 python blocks in 8 pages — 88 compile, 28 marked `run` (executed by `tests/docs/test_prd_examples.py`), 60 `fragment`, 0 unmarked |
 
 ### 6.1 Findings fixed by this pass
 

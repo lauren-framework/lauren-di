@@ -514,12 +514,14 @@ def llms_check(session: nox.Session) -> None:
 def prds(session: nox.Session) -> None:
     """Cross-check the PRD corpus with ``prds/check_consistency.py``.
 
-    Eight checks, none of which had a runner before goal #36: README↔disk index
+    Ten checks, none of which had a runner before goal #36: README↔disk index
     parity, the ten-section template, every relative link, every ``PRD 0N §x``
     cross-reference, the decision register, symbol/default/scope agreement
-    across PRDs 01-08, the no-web-framework rule, and the ``owners`` traceability
-    check that keeps ``prds/evidence/01-conformance-baseline.md`` pointing at the
-    goal that actually closed each divergence.
+    across PRDs 01-08, the no-web-framework rule, the ``GOALS.md`` registry
+    reader, the ``owners`` traceability check that keeps
+    ``prds/evidence/01-conformance-baseline.md`` pointing at the goal that
+    actually closed each divergence, and — added by goal #50 — the ``blocks``
+    gate that compiles every python fence in the PRDs and fails an unmarked one.
 
     The script is standard-library only and reads the repository, so it needs no
     install and no arguments; ``session.posargs`` is still forwarded, appended

@@ -160,7 +160,7 @@ record a test can read back, and every rejected target must raise a named except
 
 ### 5.1 `@injectable()` — one decorator, two shapes
 
-```python
+```python fragment
 from lauren_di import Scope, injectable
 
 @injectable()                        # singleton class provider, no extra tokens
@@ -193,7 +193,7 @@ Contract:
 | Does **not** | validate dependencies, construct instances, register into a container, scan imports, or enforce scope |
 | Attach failure | If the target refuses attribute assignment (e.g. `int`), `DecoratorUsageError` is raised |
 
-```python
+```python fragment
 # Rejected: the bare form hides intent and would bind the class as a positional argument.
 # @injectable
 # class Repo: ...
@@ -209,7 +209,7 @@ container normalises `provides` to a tuple at decoration time, so `provides=[A, 
 
 `injectable_meta(target)` is the only supported reader of the marker:
 
-```python
+```python fragment
 from lauren_di import Scope, injectable, injectable_meta
 
 @injectable(scope=Scope.REQUEST, provides=[Repo])
@@ -224,7 +224,7 @@ assert injectable_meta(lambda: 1) is None    # undecorated callable
 
 Inheritance is deliberately **not** transitive:
 
-```python
+```python fragment
 @injectable()
 class BaseRepo:
     ...
@@ -259,7 +259,7 @@ register(target: type | Callable[..., Any], *, owning_module: type | None = None
 | 7 | Build the immutable-by-convention `Provider`, index it by its token and by every `provides` token | — |
 | 8 | Invalidate the compiled flag (D-15) and the instance index | — |
 
-```python
+```python fragment
 from lauren_di import DIContainer
 
 container = DIContainer()
@@ -330,7 +330,7 @@ Dependencies come from `inspect.signature(cls)` — the *class* as a callable �
 `cls.__init__` directly. That single choice is what makes `__signature__`-publishing models, metaclass
 `__call__` factories and `__new__`-heavy classes work without special cases.
 
-```python
+```python fragment
 from typing import Annotated
 from lauren_di import Inject, injectable
 
@@ -362,7 +362,7 @@ class ReportService:
 | `x: "NotDefinedAnywhere"` (unresolvable) | Yes, as a **string token** | the raw string | `MissingProviderError: No provider for NotDefinedAnywhere` |
 | `def __init__(self, x: T, /)` — positional-only, would be collected | **No — registration fails** (D-19) | — | `UnresolvableParameterError` |
 
-```python
+```python fragment
 # Rejected at registration: an unannotated parameter cannot be resolved by type.
 @injectable()
 class Broken:
@@ -395,7 +395,7 @@ Both arrive late and name the wrong problem, so `lauren-di` rejects the target a
 Field injection exists so a plain class can receive collaborators without writing `__init__`. It is
 deliberately narrow: **most annotations are data, not dependencies.**
 
-```python
+```python fragment
 from typing import Annotated
 from lauren_di import Inject, injectable
 
@@ -486,7 +486,7 @@ behaviour and PRD 08 lists the docstring as a documentation defect to fix upstre
 
 Any decorated non-class callable becomes a provider whose **token is the function object**:
 
-```python
+```python fragment
 from typing import Annotated
 from lauren_di import Inject, injectable
 
@@ -519,7 +519,7 @@ Rules:
 
 A generator function is a provider whose `yield` is the setup/teardown boundary:
 
-```python
+```python fragment
 from lauren_di import injectable
 
 @injectable()
@@ -565,7 +565,7 @@ Rules:
 
 Resolution tokens come from annotations, so the introspection pipeline is part of the public contract.
 
-```python
+```python fragment
 from __future__ import annotations          # PEP 563: every annotation is a string
 from typing import Annotated
 from lauren_di import Inject, injectable
@@ -622,7 +622,7 @@ dependency; a parameter without one is *hard*.
 
 Three calls, no configuration:
 
-```python
+```python run
 import asyncio
 from lauren_di import DIContainer, injectable
 
@@ -953,7 +953,7 @@ Property-style tests worth adding in the same phase:
 
 `tests/parity/test_prd02_registration.py` imports the container through a two-line shim:
 
-```python
+```python fragment
 # tests/parity/_impl.py
 import os
 if os.environ.get("LAUREN_DI_PARITY_TARGET") == "lauren":

@@ -175,7 +175,7 @@ Not *whether* overrides ship — every user of a DI container needs them — but
 
 ### 5.1 Data model
 
-```python
+```python fragment
 from dataclasses import dataclass, field
 from types import MappingProxyType
 from typing import Callable, Mapping
@@ -233,7 +233,7 @@ Each kind lowers to an ordinary `Provider` row, with the replaced row's token,
 Nothing about the container's resolution path is special-cased for overrides —
 `get_provider(T)` returns the replacement row, and PRDs 02–06 apply unchanged.
 
-```python
+```python fragment
 from lauren_di import DIContainer, OverridePlan, ProviderOverride, injectable
 
 
@@ -258,7 +258,7 @@ container.compile()
 assert (await container.resolve(Clock)).now() == "2026-11-21T00:00:00Z"
 ```
 
-```python
+```python fragment
 # kind="values" - replace a whole multi-bound collection.
 # The target must be registered with multi=True; a single row is rejected at
 # plan construction with non_multi_values (OV-06), never silently promoted.
@@ -276,7 +276,7 @@ container.compile()
 assert [repo.name for repo in await container.resolve(list[Repo])] == ["A", "B"]
 ```
 
-```python
+```python fragment
 # kind="class" - the double needs dependencies of its own, so build it through DI.
 class FakeRepo:
     def __init__(self, clock: Clock) -> None:   # resolved like any registered class
@@ -299,7 +299,7 @@ container.compile()
 assert isinstance(await container.resolve(Repo), FakeRepo)
 ```
 
-```python
+```python fragment
 # kind="factory" - positional injects; an OptionalDep lowers to None (OV-08).
 def make_fake(clock: Clock, cfg: Config | None) -> FakeRepo:
     return FakeRepo(clock, cfg)
@@ -323,7 +323,7 @@ container.compile()
 assert isinstance(await container.resolve(Repo), FakeRepo)
 ```
 
-```python
+```python fragment
 # kind="existing" - an alias row: resolution forwards to the named token inside
 # that row's own visibility domain and scope, so it cannot tunnel past PRD 06's
 # filter or PRD 03's scope rule (OV-09).
@@ -412,7 +412,7 @@ rule, applied to all five kinds:
 
 ### 5.4 Target validation and `optional`
 
-```python
+```python fragment
 plan = OverridePlan(
     {
         Metrics: ProviderOverride(token=Metrics, kind="value", value=NoopMetrics()),
@@ -451,7 +451,7 @@ container.compile()               # OverrideError: reason="target_missing"
 
 ### 5.5 Activation and the ContextVar
 
-```python
+```python fragment
 from lauren_di import active_override_plan, building_with
 
 with building_with(plan):
@@ -561,7 +561,7 @@ A fresh container per test is the only pattern that gives CG-1 for free: the
 singleton cache, the request cache, the visibility grants and the teardown list
 all die with the container.
 
-```python
+```python fragment
 # conftest.py
 import pytest
 from lauren_di import DIContainer
@@ -579,7 +579,7 @@ async def container():
     await c.shutdown()
 ```
 
-```python
+```python fragment
 # test_service.py
 from lauren_di import OverridePlan, ProviderOverride
 

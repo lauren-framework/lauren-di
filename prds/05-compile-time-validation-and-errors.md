@@ -126,7 +126,7 @@ be constructed from what is registered, in a lifetime that is legal?" — and st
 
 ### 5.1 `compile()` — the contract
 
-```python
+```python fragment
 from lauren_di import DIContainer
 
 container = DIContainer()
@@ -259,7 +259,7 @@ Two edge cases worth stating because they are easy to get wrong:
 
 ### 5.5 `DIError` — the root
 
-```python
+```python fragment
 from lauren_di import DIError
 
 class DIError(Exception):
@@ -489,7 +489,7 @@ HTTP, routing, modules, extractors or scheduling in its message. T05-50 asserts 
 
 ### 5.9 Five failures, end to end
 
-```python
+```python fragment
 from lauren_di import DIContainer, DIError, Scope
 
 # 1. Cycle
@@ -527,7 +527,7 @@ and "this line is wrong" (G3, D-34).
 
 ### 5.10 A complete validation program
 
-```python
+```python run
 import asyncio
 
 from lauren_di import (
@@ -848,7 +848,7 @@ wording.
 
 ### 10.2 Parity tests
 
-```python
+```python fragment
 import pytest
 
 

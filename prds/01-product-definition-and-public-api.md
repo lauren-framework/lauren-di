@@ -178,7 +178,7 @@ docs = ["mkdocs>=1.6", "mkdocs-material>=9.5", "pymdown-extensions>=10.7"]
 
 Twenty lines, no framework, no transport:
 
-```python
+```python run
 import asyncio
 from lauren_di import DIContainer, Scope, injectable
 
@@ -769,7 +769,7 @@ print(sorted(leaf.code for leaf in leaves))
 
 - `resolve` carries overloads so the common shapes type-check without casts:
 
-```python
+```python fragment
 from typing import Any, Mapping, TypeVar, overload
 
 from lauren_di import Token
@@ -969,8 +969,11 @@ Convention changes recorded for later PRDs:
 
 1. Every public name in §5.3 must appear in `__all__`, `docs/reference.md` and
    `llms-full.txt`; the same three-way check applies to every future addition.
-2. Every example in PRD 02–07 must be executable, not pseudo-code; the docs contract compiles
-   and runs it.
+2. Every example in PRD 02–07 must compile, and every block carries a marker: `run` means a
+   reader is meant to type it, and `tests/docs/test_prd_examples.py` executes every `run` block in
+   the corpus; `fragment` (or `skip`) means deliberately partial, compiled only.
+   `prds/check_consistency.py`'s `blocks` check fails on a block that does not compile or carries
+   no marker, so pseudo-code is a stated choice rather than an unmarked default.
 3. No PRD may add an HTTP, routing, extractor, config, scheduling or module-graph concept to the
    public surface (README §3).
 
@@ -980,7 +983,7 @@ Convention changes recorded for later PRDs:
 |-------|----------|--------|
 | Public surface | `tests/unit/test_public_api.py` | `__all__` equals §5.3 exactly; no private names leak; every name imports |
 | Quickstart | `tests/integration/test_quickstart.py` | §5.2 runs unmodified and prints the asserted value |
-| Examples | `tests/docs/test_prd_examples.py` | Every §5.4 block compiles; blocks marked `run` execute |
+| Examples | `tests/docs/test_prd_examples.py` | Every §5.4 block compiles; every `run` block in `prds/*.md` executes (28 of 88; the rest are marked `fragment`) |
 | Packaging | `tests/packaging/test_wheel.py` | `py.typed` in wheel; no *unconditional* `Requires-Dist` — every `Requires-Dist` is `extra ==`-gated; `requires-python >=3.10`; import works from a clean venv |
 | Import graph | `tests/packaging/test_no_framework_imports.py` | Built wheel has no *mandatory* third-party import — the only guarded optional import is the one §6.2 declares; `lauren` absent |
 | Typing | `tests/typing/` | `mypy --strict` and `pyright` over §5.4 and public stubs; `resolve` overloads infer `T` |

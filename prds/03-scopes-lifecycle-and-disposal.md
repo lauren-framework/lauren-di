@@ -33,7 +33,7 @@ this PRD has to define.
 `Scope` is an `IntEnum` deliberately ordered narrowest-to-widest (`TRANSIENT = 0`, `REQUEST = 1`,
 `SINGLETON = 2`). The compile-time check is one line:
 
-```python
+```python fragment
 if for_scope > chosen.scope:
     raise DIScopeViolationError(...)
 ```
@@ -173,7 +173,7 @@ reflect the corrections.
 
 ### 5.1 `Scope`
 
-```python
+```python fragment
 from enum import IntEnum
 
 class Scope(IntEnum):
@@ -387,7 +387,7 @@ the warning says the instance will never be torn down, not that it was cached.
 
 ### 5.5 `@post_construct` and `@pre_destruct`
 
-```python
+```python fragment
 from lauren_di import injectable, post_construct, pre_destruct
 
 @injectable()
@@ -455,7 +455,7 @@ The reference does exactly this (verified: `resolve(S)` yields `['S.init']`; `st
 There is no `LifecycleScheduler` and no application object (D-7). The container is the lifecycle
 owner, and an embedder calls two methods.
 
-```python
+```python fragment
 container = DIContainer()
 container.register(Pool)
 container.register(Repo)          # Repo(pool: Pool)
@@ -655,9 +655,9 @@ Rules (D-22):
 
 ### 5.11 A complete lifecycle program
 
-Twenty-one non-blank lines, runnable, exercising every rule in this PRD through public names only:
+Twenty-seven non-blank lines, runnable, exercising every rule in this PRD through public names only:
 
-```python
+```python run
 import asyncio
 from lauren_di import DIContainer, Scope, injectable, post_construct, pre_destruct
 
@@ -685,8 +685,9 @@ async def main() -> None:
         assert first is await scope.resolve(Tx)
     assert log == ["pool.open", "tx.rollback"] and scope.errors == ()
     assert await c.shutdown() == ()           # pool.close, then cache cleared
-    rebuilt = await c.resolve(Tx)             # nothing cached: this is a new instance
-    assert rebuilt is not first
+    async with c.scope() as again:            # a new lifetime: nothing was cached
+        rebuilt = await again.resolve(Tx)
+        assert rebuilt is not first
 
 asyncio.run(main())
 ```
@@ -992,7 +993,7 @@ Property-style tests worth adding in the same phase:
 `tests/parity/test_prd03_lifecycle.py` imports through the same two-line shim PRD 02 defines
 (`tests/parity/_impl.py`), so one test body runs against both implementations:
 
-```python
+```python fragment
 # tests/parity/test_prd03_lifecycle.py
 import os, pytest
 from ._impl import DIContainer, Scope, injectable, post_construct, pre_destruct

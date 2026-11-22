@@ -1,7 +1,8 @@
 #!/usr/bin/env python3
 """Cross-PRD consistency check for the ``lauren-di`` PRD set.
 
-Implements the five checks enumerated in ``prds/README.md`` §6, a curated
+Implements the six checks enumerated in ``prds/README.md`` §6 (the sixth,
+``blocks``, gates every python code fence in the PRDs), a curated
 symbol/default/scope table that encodes the cross-cutting decisions, and one
 baseline-traceability check (``owners``) that keeps
 ``prds/evidence/01-conformance-baseline.md`` pointing at the goals that actually
@@ -18,13 +19,22 @@ failures are printed with the file and the offending value.
 """
 
 from __future__ import annotations
+import __future__ as _future
 
+import ast
+import importlib.util
 import re
 import sys
+import types
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent
 README = ROOT / "README.md"
+#: The docs contract's fence grammar. Imported rather than re-derived: ``run``,
+#: ``fragment`` and ``skip`` mean one thing in this repository, and
+#: ``tests/docs/prd_examples.py`` already reads the same parser for the same
+#: reason. A second grammar here would be a second reading of one property.
+DOCS_CONTRACT = ROOT.parent / "scripts" / "check_docs_contract.py"
 #: Two digits, not ``0*``: the citation rule resolves ``PRD NN`` for any ``NN``,
 #: so the registry has to be able to *hold* a two-digit document. Under the old
 #: ``0*.md`` glob a ``10-*.md`` was invisible to every check in this file while
@@ -584,7 +594,9 @@ def _check_goal_numbering() -> tuple[int, int]:
 
 
 def check_owners() -> None:
-    """Check 6: every baseline owner reference resolves to the goal that closed it.
+    """The baseline-traceability check (beyond README §6's numbered list).
+
+    Every baseline owner reference resolves to the goal that closed it.
 
     ``prds/evidence/01-conformance-baseline.md`` ends with a work queue naming, per
     divergence, the goal that fixed it. Those were bare numbers written against one
@@ -655,6 +667,113 @@ def check_owners() -> None:
     )
 
 
+# ------------------------------------------------------ 6. PRD code blocks
+#: ``run`` means executed (by ``tests/docs/test_prd_examples.py``, corpus-wide);
+#: ``fragment``/``skip`` mean "deliberately partial, compile only".
+RUN_MARKER = "run"
+PARTIAL_MARKERS = frozenset({"fragment", "skip"})
+#: The docs contract's compile flags: top-level ``await`` is legal and
+#: annotations stay strings, so a block may name a stand-in before it exists.
+_COMPILE_FLAGS = ast.PyCF_ALLOW_TOP_LEVEL_AWAIT | _future.annotations.compiler_flag
+
+
+def _fence_parser() -> types.ModuleType:
+    """Import ``scripts/check_docs_contract.py`` for its fence parser."""
+    spec = importlib.util.spec_from_file_location("_lauren_di_docs_contract", DOCS_CONTRACT)
+    if spec is None or spec.loader is None:  # pragma: no cover - packaging accident
+        raise RuntimeError(f"cannot import the docs contract from {DOCS_CONTRACT}")
+    module = importlib.util.module_from_spec(spec)
+    # Register before executing: ``dataclasses`` resolves string annotations
+    # through ``sys.modules``, so an unregistered module breaks the import.
+    sys.modules[spec.name] = module
+    spec.loader.exec_module(module)
+    return module
+
+
+def prd_blocks() -> list[tuple[Path, object]]:
+    """Every fenced python block in the corpus, as ``(page, block)``, in file order.
+
+    ``PRDS`` is the two-digit glob, so ``prds/evidence/**`` (throwaway probe
+    scripts, cited by ``E-nnn`` id and audited by ``run_all.py --check``) is out
+    of scope by construction, and so is this directory's ``README.md``.
+    """
+    parser = _fence_parser()
+    found: list[tuple[Path, object]] = []
+    for page in PRDS:
+        for block in parser.extract_blocks(page.read_text(), page.name):
+            if block.language in parser.PYTHON_LANGUAGES:
+                found.append((page, block))
+    return found
+
+
+def check_blocks() -> None:
+    """Check 6: every python block in the PRDs compiles, and carries a marker.
+
+    The corpus holds 88 python blocks and, before this check, no gate read one:
+    ``scripts/check_docs_contract.py``'s source list has no ``prds/`` page, this
+    module parsed prose and tables but never a block, and
+    ``tests/docs/test_prd_examples.py`` covered two sections. A block with a
+    plain ``SyntaxError`` — or with a member the library does not ship, which is
+    how PRD 03's ``scope.teardown_errors`` survived a whole gate set — therefore
+    passed every check in the repository.
+
+    Two rules make the corpus checkable rather than lucky:
+
+    * **every block compiles**, including the ones marked ``fragment``/``skip``:
+      the marker excuses a block from *execution*, not from being Python;
+    * **every block carries a marker**. ``run`` promises the block executes —
+      ``tests/docs/test_prd_examples.py`` executes every ``run`` block in the
+      corpus, so a promise that stops being true fails there. ``fragment``
+      (or ``skip``) is the explicit "deliberately partial, compile only". An
+      unmarked block is one no gate decided about, which is how a block a
+      reader would type goes unexecuted for the whole life of the corpus.
+
+    The census is reported as a note so the corpus's shape is visible: a page
+    that loses its blocks, or a run/fragment split that moves, shows up in the
+    output and not only in a failure.
+    """
+    blocks = prd_blocks()
+    if not blocks:
+        fail("blocks", "no python block found in prds/*.md")
+        return
+    compiled = run = partial = unmarked = 0
+    for page, block in blocks:
+        location = f"{page.name}:{block.line}"
+        try:
+            compile(block.source, location, "exec", flags=_COMPILE_FLAGS, dont_inherit=True)
+        except SyntaxError as exc:
+            fail(
+                "blocks",
+                f"{location}: python block does not compile: {exc.msg} (line {exc.lineno})",
+            )
+        else:
+            compiled += 1
+        markers = set(block.markers)
+        if not markers:
+            unmarked += 1
+            fail(
+                "blocks",
+                f"{location}: python block carries no marker — `run` if a reader is meant "
+                "to run it, `fragment`/`skip` if it is deliberately partial; an unmarked "
+                "block is one no gate has decided about",
+            )
+        elif RUN_MARKER in markers and markers & PARTIAL_MARKERS:
+            fail(
+                "blocks",
+                f"{location}: python block is marked both `run` and "
+                f"{sorted(markers & PARTIAL_MARKERS)}: it either executes or it does not",
+            )
+        elif RUN_MARKER in markers:
+            run += 1
+        else:
+            partial += 1
+    notes.append(
+        f"blocks: {len(blocks)} python block(s) in {len(PRDS)} PRD page(s) — "
+        f"{compiled} compiled, {run} marked run, {partial} fragment/skip, "
+        f"{unmarked} unmarked"
+    )
+
+
 def main() -> int:
     check_index()
     check_template()
@@ -664,6 +783,7 @@ def main() -> int:
     check_symbols()
     check_scope()
     check_owners()
+    check_blocks()
 
     print("lauren-di PRD consistency check")
     print("=" * 60)

@@ -47,7 +47,7 @@ Three facts make the decision urgent rather than deferrable:
 `set_visible` is never called by hand in the framework. It is called once per
 module by the ASGI startup path:
 
-```python
+```python fragment
 # lauren/_asgi/__init__.py:4128
 for mod_cls in graph.modules:
     container.set_visible(mod_cls, graph.visible_in(mod_cls))
@@ -71,11 +71,12 @@ auto-discovery, no implicit scanning).
 `_is_visible` returns `True` when the consumer's module has no entry in
 `_visible` (`_di/__init__.py:966–968`):
 
-```python
-visible = self._visible.get(owning_module)
-if visible is None:
-    # No explicit visibility installed — legacy / unit-test mode.
-    return True
+```python fragment
+def _is_visible(self, owning_module):
+    visible = self._visible.get(owning_module)
+    if visible is None:
+        # No explicit visibility installed — legacy / unit-test mode.
+        return True
 ```
 
 `probe E-203` measures the consequence: with `ModA` and `ModB` declared and
@@ -99,7 +100,7 @@ knows about `_visible`.
 the same structural Protocol — the canonical encapsulation case, and the one the
 framework's own test suite builds:
 
-```python
+```python fragment
 @injectable(provides=[Store])
 class StoreA: ...
 @injectable(provides=[Store])
@@ -129,7 +130,7 @@ class provider declared `@injectable(provides=[Sender])`, `provider.cls` is the
 `probe E-215` measures the consequence: granting the protocol token hides the
 provider that is registered under it.
 
-```python
+```python fragment
 container.set_visible(ModA, frozenset({Sender}))   # "ModA may use senders"
 container.resolve(list[Sender], owning_module=ModA)
 # MissingProviderError: No provider for Sender (requested as list) visible from module ModA
@@ -288,7 +289,7 @@ can reproduce.
 Two public type aliases make signatures readable and are exported for typing
 users (PRD 01 §5.3.2):
 
-```python
+```python fragment
 from typing import Any, TypeAlias
 
 #: One entry in a visible set: a token (all rows bound to it) or a row address.
@@ -336,7 +337,7 @@ Rules:
 
 ### 5.4 Declaring a visible set
 
-```python
+```python fragment
 class DIContainer:
     def set_visible(
         self,
@@ -359,7 +360,7 @@ class DIContainer:
 | `grant_visible(M, grants)` | **Unions** `grants` into the existing effective set. If `M` has no declaration, it seeds with `own(M)` then unions |
 | `visible_in(M)` | Returns the *effective* visible set as a frozenset of tokens (own providers first, then grants). Rows addressed by `(token, owner)` appear as their bare token |
 
-```python
+```python fragment
 class BillingModule: ...
 class ReportingModule: ...
 
@@ -517,7 +518,7 @@ Two modes, one switch, no third state:
 
 Worked example — the pathological case, resolved:
 
-```python
+```python fragment
 from lauren_di import DIContainer, injectable
 
 
@@ -592,7 +593,7 @@ async def totals() -> tuple[int, int]:
 
 ### 5.8 Diagnostics
 
-```python
+```python fragment
 class DIContainer:
     def explain(
         self,
@@ -606,7 +607,7 @@ class DIContainer:
 and why can I not see it?* It is a pure read: it never mutates, never compiles,
 and never raises.
 
-```python
+```python fragment
 report = container.explain(InvoiceService, owning_module=ReportingModule)
 ```
 
@@ -674,7 +675,7 @@ walk, forward-reference resolution, and three exception classes that this PRD se
 has just finished keeping out of the library. The adapter to v1 is three lines —
 *that* is the important part:
 
-```python
+```python fragment
 for module_cls in graph.modules:
     container.set_visible(module_cls, graph.visible_in(module_cls))
 ```

@@ -21,6 +21,7 @@ from __future__ import annotations
 
 import ast
 import asyncio
+import pathlib
 import re
 
 import lauren_di
@@ -40,6 +41,18 @@ RUNNABLE = [example for example in CHECKED if prd_examples.is_runnable(example)]
 EXPECTED_SUBSECTIONS = 22
 EXPECTED_BLOCKS = 22
 EXPECTED_RUN_BLOCKS = 22
+
+#: The whole corpus: every PRD page, every python block. Compilation and marker
+#: discipline belong to ``prds/check_consistency.py``'s ``blocks`` check
+#: (``nox -s prds``); *execution* is this module's half, so a ``run`` marker
+#: cannot be a promise nobody keeps — which is what it was for the 65 blocks
+#: outside the two sections this harness used to name.
+CORPUS_PAGES = prd_examples.PRD_PAGES
+CORPUS = {page.name: prd_examples.collect_page(page) for page in CORPUS_PAGES}
+EXPECTED_CORPUS_PAGES = 8
+EXPECTED_CORPUS_BLOCKS = 88
+EXPECTED_CORPUS_RUN_BLOCKS = 28
+EXPECTED_CORPUS_UNMARKED = 0
 
 #: A miniature section exercising every marker the contract understands.
 SYNTHETIC = "\n".join(
@@ -239,6 +252,79 @@ def test_run_marked_blocks_execute_in_file_order() -> None:
         executed.append(example.line)
 
     assert executed == sorted(executed), "§5.4 blocks did not execute in file order"
+
+
+def test_the_corpus_census_is_the_one_this_module_executes(
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    """The corpus's shape, pinned: 88 blocks over 8 pages, 28 of them executed.
+
+    The census is the claim this module makes about itself — every ``run`` block
+    in every PRD executes here, and nothing else is expected to. ``prds/
+    check_consistency.py`` reports the same split as an ``ok`` line, so a page
+    that gains or loses blocks is visible in both gates.
+    """
+    report = prd_examples.corpus_inventory()
+    print(report)
+
+    assert capsys.readouterr().out.strip() == report
+    assert len(CORPUS_PAGES) == EXPECTED_CORPUS_PAGES
+    assert sum(len(examples) for examples in CORPUS.values()) == EXPECTED_CORPUS_BLOCKS
+    assert (
+        sum(
+            1
+            for examples in CORPUS.values()
+            for example in examples
+            if prd_examples.is_runnable(example)
+        )
+        == EXPECTED_CORPUS_RUN_BLOCKS
+    )
+    assert report == (
+        "88 python block(s) in 8 page(s): 28 marked run, 60 fragment/skip, 0 unmarked"
+    )
+
+
+def test_no_prd_block_is_unmarked() -> None:
+    """A block with no marker is one no gate has decided about.
+
+    The marker is the decision: ``run`` (executed here) or ``fragment``/``skip``
+    (deliberately partial, compiled only). Leaving it off used to be the third,
+    silent option, which is how 65 blocks — including three complete programs
+    with ``asyncio.run(main())`` — went unexecuted for the life of the corpus.
+    """
+    unmarked = [
+        example.location
+        for examples in CORPUS.values()
+        for example in examples
+        if not example.markers
+    ]
+
+    assert len(unmarked) == EXPECTED_CORPUS_UNMARKED, (
+        "PRD blocks with no `run`/`fragment` marker, so nothing decides whether they "
+        f"should execute: {unmarked}"
+    )
+
+
+@pytest.mark.parametrize("page", CORPUS_PAGES, ids=lambda page: page.name)
+def test_every_run_marked_block_in_the_page_executes(page: pathlib.Path) -> None:
+    """Every ``run`` block in the corpus runs, per page, in file order.
+
+    Corpus-wide on purpose: before this test the ``run`` marker meant something
+    only inside PRD 01 §5.4 and PRD 03 §5.3, so a ``run`` block in PRD 04-08
+    would have been a promise no gate kept. A page's blocks share one namespace
+    in file order (PRD 01 §5.4's rule), seeded with PRD 01's stand-ins and
+    otherwise empty.
+    """
+    namespace = prd_examples.page_namespace(page)
+    executed: list[int] = []
+
+    for example in prd_examples.collect_page(page):
+        if not prd_examples.is_runnable(example):
+            continue
+        prd_examples.execute(example, namespace)
+        executed.append(example.line)
+
+    assert executed == sorted(executed), f"{page.name} `run` blocks did not execute in file order"
 
 
 def test_marker_grammar_selects_what_runs() -> None:

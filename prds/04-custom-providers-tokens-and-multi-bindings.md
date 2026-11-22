@@ -97,7 +97,7 @@ compile scan.
 
 Both forms below are legal Python and look equivalent:
 
-```python
+```python fragment
 DB = Token("DB")
 
 @injectable()
@@ -177,7 +177,7 @@ an `ExtractionMarker` subclass would be a lie about the dependency direction. §
 
 ### 5.1 `Token`
 
-```python
+```python fragment
 from lauren_di import Token
 
 DB = Token("DB")                      # identity semantics
@@ -220,7 +220,7 @@ Rules:
 
 ### 5.2 `Inject`, `OptionalDep`, `Depends`
 
-```python
+```python fragment
 from typing import Annotated
 from lauren_di import Depends, Inject, OptionalDep, use_factory
 
@@ -276,7 +276,7 @@ instead of being exercised (the decision and its coverage evidence are recorded 
 `prds/evidence/42-depends-alias-dead-branch.md`). The whole contract is identity plus a
 readable `repr`:
 
-```python
+```python fragment
 class _DependsAlias:
     """Spelling-only alias: ``Depends[T] is T`` (D-25)."""
 
@@ -296,7 +296,7 @@ is not a type (PRD 01 §5.5). Every example in this PRD follows that rule.
 
 ### 5.3 `CustomProvider` and the four recipes
 
-```python
+```python fragment
 from lauren_di import (
     CustomProvider, Scope, use_class, use_existing, use_factory, use_value,
 )
@@ -396,7 +396,7 @@ Lowering rules that the table does not make obvious:
 
 ### 5.5 Aliases
 
-```python
+```python fragment
 from lauren_di import DIContainer, use_existing
 
 container = DIContainer()
@@ -442,7 +442,7 @@ Rules:
 
 ### 5.6 `multi=True` and `list[T]`
 
-```python
+```python fragment
 from lauren_di import Scope, injectable
 
 class Plugin: ...
@@ -585,7 +585,7 @@ Rules:
 
 Exercises every recipe, an alias chain, a collection and a token field, through public names only:
 
-```python
+```python run
 import asyncio
 from typing import Annotated
 
@@ -958,7 +958,7 @@ Property-style tests worth adding in the same phase:
 
 ### 10.2 Parity harness
 
-```python
+```python fragment
 # tests/parity/test_prd04_custom_providers.py
 import pytest
 

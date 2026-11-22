@@ -29,9 +29,10 @@ the call and over one that reads the ``reveal_type`` notes.
 from __future__ import annotations
 
 import ast
+import functools
+import importlib.util
 import inspect
 import pathlib
-import re
 import subprocess
 import sys
 import textwrap
@@ -172,14 +173,39 @@ def _overload_annotations() -> list[dict[str, str]]:
     return _resolve_overload_annotations(pathlib.Path(module_path).read_text(encoding="utf-8"))
 
 
+#: The docs contract owns the fence grammar, markers included: a PRD block opens
+#: with ```` ```python ```` and may carry `run`, `fragment` or `skip` in its info
+#: string. A second regex here would be a second reading of that grammar — the
+#: shape goal #50 removed from the corpus — so this reads the one parser.
+DOCS_CONTRACT = REPO_ROOT / "scripts" / "check_docs_contract.py"
+
+
+@functools.lru_cache(maxsize=1)
+def _docs_contract() -> Any:
+    """``scripts/check_docs_contract.py``, loaded the way its own tests load it."""
+    spec = importlib.util.spec_from_file_location("docs_contract_for_resolve_checks", DOCS_CONTRACT)
+    assert spec is not None and spec.loader is not None, f"cannot import {DOCS_CONTRACT}"
+    module = importlib.util.module_from_spec(spec)
+    # Registered before execution: the contract defines frozen dataclasses, and
+    # ``dataclasses`` resolves their string annotations through ``sys.modules``.
+    sys.modules[spec.name] = module
+    spec.loader.exec_module(module)
+    return module
+
+
 def _prd_5_6_source() -> str:
-    """The single fenced python block under PRD 01 §5.6."""
+    """The single fenced python block under PRD 01 §5.6, marker included."""
     text = PRD_01.read_text(encoding="utf-8")
     start = text.index("### 5.6 Typing contract")
     end = text.index("\n## 6.", start)
-    blocks = re.findall(r"```python\n(.*?)```", text[start:end], re.DOTALL)
+    contract = _docs_contract()
+    blocks = [
+        block
+        for block in contract.extract_blocks(text[start:end], "PRD 01 §5.6")
+        if block.language in contract.PYTHON_LANGUAGES
+    ]
     assert len(blocks) == 1, f"§5.6 should hold exactly one python block, found {len(blocks)}"
-    return blocks[0]
+    return blocks[0].source
 
 
 def test_resolve_overloads_share_the_widened_parameter_annotations() -> None:

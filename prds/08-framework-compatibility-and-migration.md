@@ -169,7 +169,7 @@ Two consequences worth stating outright:
 The marker is the only thing a decorated object carries, so the rename is a data migration, not an
 API one: every `@injectable()` class in a user's codebase changes one attribute name at import time.
 
-```python
+```python fragment
 # lauren (before)
 class OrderService:
     pass
@@ -282,7 +282,7 @@ set equality, so a future rename fails loudly (T08-05).
 - **MC-22.** `OverrideError` and `InvalidProviderError` are additions with no migration path because
   there is no old name; the parity suite lists them in the divergence register (T08-22).
 
-```python
+```python fragment
 # Migrating an except clause: the reference's hierarchy collapsed to one base.
 from lauren_di import DIError, MissingProviderError
 
@@ -298,7 +298,7 @@ except DIError as exc:                        # replaces LaurenError AND Startup
 
 The reference's mechanism is a global registry plus a magic `Request` type:
 
-```python
+```python fragment
 # lauren: the registry is process-global and never emptied
 from lauren._di._scope import register_framework_value, framework_value_types
 
@@ -310,7 +310,7 @@ assert JobContext in framework_value_types()
 
 The library replaces it with a declaration on the container and a value at the scope:
 
-```python
+```python fragment
 from lauren_di import DIContainer, injectable
 
 
@@ -359,7 +359,7 @@ async def fail():
 
 The reference's DI core knows about HTTP markers by importing them lazily:
 
-```python
+```python fragment
 # lauren, _di/__init__.py:2313
 def _is_extractor_marker(obj):
     from ..extractors import ExtractionMarker      # inside the DI core
@@ -376,7 +376,7 @@ E-405 UsesHeader  MissingProviderError: {'token': 'str'} | No provider for str
 
 The library removes the import and offers an optional, stdlib-only predicate:
 
-```python
+```python fragment
 from typing import Annotated, Any
 from lauren_di import DIContainer, injectable
 
@@ -430,7 +430,7 @@ E-424  after run_pre_destruct             -> ['Service.up', 'Service.down']
 E-426  container exposes: adopt_lifecycle, mark_singleton_initialized, set_singleton, instance_index
 ```
 
-```python
+```python fragment
 # lauren_di: one owner, two methods, no scheduler
 container = DIContainer()
 container.register(Service)
@@ -467,7 +467,7 @@ dated window — and it keeps the source of truth in one place.
 `lauren.compat` module for exactly one minor release, which re-exports library names, translates the
 `framework_values=` keyword with a `DeprecationWarning`, and is removed on a published date.**
 
-```python
+```python fragment
 # lauren/compat.py  -- lives in the FRAMEWORK, never in lauren_di
 import warnings
 
@@ -520,7 +520,7 @@ Parity cannot mean "the same test file imports both packages", because the two d
 a few named places. The harness therefore puts every divergence in an **adapter** and writes each
 invariant once:
 
-```python
+```python fragment
 # tests/parity/conftest.py  (sketch of the shipped harness)
 import pytest
 
