@@ -28,6 +28,7 @@ from __future__ import annotations
 import importlib.util
 import pathlib
 import re
+import sys
 from typing import Any
 
 import lauren_di
@@ -261,3 +262,139 @@ def test_llms_checker_ignores_absolute_links(
 
     monkeypatch.setattr(checker, "LLMS_INDEX", mutated)
     assert checker.main([]) == 0, "absolute and fragment links must not be treated as files"
+
+
+# ---------------------------------------------------------------------------
+# 4b. One resolver: the index is read by the docs contract's grammar
+# ---------------------------------------------------------------------------
+CONTRACT = REPO_ROOT / "scripts" / "check_docs_contract.py"
+
+#: Every shape the two grammars used to disagree about, in one page: a plain
+#: link, a link carrying a title, an image, a link quoted in an inline code span
+#: and a link quoted inside a fence. ``llms-full.txt`` — a root page, which is
+#: where ``llms.txt`` resolves from — is the only file it asserts.
+TRICKY_LINKS = """\
+- [Real](llms-full.txt): a page this file asserts.
+- [Titled](llms-full.txt "the corpus"): the title is syntax, not part of the address.
+- ![Image](missing.png): an image is not a link the page asserts.
+- A span: `[Span](missing.md)` is an example, not a link.
+- A fence:
+
+```markdown
+[Fenced](missing.md)
+```
+"""
+
+
+@pytest.fixture(scope="module")
+def contract() -> Any:
+    """``scripts/check_docs_contract.py``, loaded the way its own tests load it."""
+    spec = importlib.util.spec_from_file_location("docs_contract_for_release_checks", CONTRACT)
+    assert spec is not None and spec.loader is not None, f"cannot import {CONTRACT}"
+    module = importlib.util.module_from_spec(spec)
+    # Registered before execution: the contract defines frozen dataclasses, and
+    # ``dataclasses`` resolves their string annotations through ``sys.modules``.
+    sys.modules[spec.name] = module
+    spec.loader.exec_module(module)
+    return module
+
+
+def test_the_index_is_read_by_the_docs_contracts_grammar(
+    contract: Any, tmp_path: pathlib.Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """One property, one reader: the llms checker keeps no link grammar of its own.
+
+    ``llms.txt`` is in both corpora, so ``nox -s llms_check`` and
+    ``nox -s docs_contract`` resolve its links. Two grammars agreed on today's
+    corpus only because the index sits at the repository root; this pins the
+    single reading, on text where the old regexes disagreed (a title made the old
+    target ``'guide.md "the guide"'``, and a fenced or backticked example made it
+    a link that had to exist).
+    """
+    checker = _load_script("check_llms_full")
+    index = tmp_path / "llms.txt"
+    index.write_text(TRICKY_LINKS, encoding="utf-8")
+    monkeypatch.setattr(checker, "LLMS_INDEX", index)
+
+    read_by_the_checker = checker.index_links(TRICKY_LINKS)
+    read_by_the_contract = contract.relative_links_in(TRICKY_LINKS, "llms.txt")
+
+    assert [link.target for link in read_by_the_checker] == ["llms-full.txt", "llms-full.txt"], (
+        "the llms checker no longer reads links the way the docs contract does: "
+        f"{[link.target for link in read_by_the_checker]}"
+    )
+    assert [(link.line, link.target) for link in read_by_the_checker] == [
+        (link.line, link.target) for link in read_by_the_contract
+    ], "the two gates disagree about which lines of llms.txt carry a link"
+
+
+def test_only_a_link_the_index_really_asserts_can_be_broken(
+    contract: Any, tmp_path: pathlib.Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The fenced, backticked and image targets are examples, not addresses."""
+    checker = _load_script("check_llms_full")
+    index = tmp_path / "llms.txt"
+    index.write_text(
+        TRICKY_LINKS + "- [Broken](missing.md): a page that does not exist.\n", encoding="utf-8"
+    )
+    monkeypatch.setattr(checker, "LLMS_INDEX", index)
+
+    dangling = contract.check_links(checker.index_links(index.read_text(encoding="utf-8")))
+
+    assert [violation.message for violation in dangling] == [
+        "relative link does not resolve: missing.md"
+    ], f"expected exactly the one real broken link, got {dangling}"
+
+
+def test_llms_checker_ignores_a_link_quoted_inside_a_fence(
+    tmp_path: pathlib.Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A link shown as an example is not one the page claims works.
+
+    This is the drift the collapse removed: the old checker failed this page
+    while ``nox -s docs_contract`` passed it.
+    """
+    checker = _load_script("check_llms_full")
+    text = (REPO_ROOT / "llms.txt").read_text(encoding="utf-8")
+
+    mutated = tmp_path / "llms.txt"
+    mutated.write_text(
+        text + "\n- example:\n\n```markdown\n[Fenced](does-not-exist.md)\n```\n",
+        encoding="utf-8",
+    )
+
+    monkeypatch.setattr(checker, "LLMS_INDEX", mutated)
+    assert checker.main([]) == 0, "a fenced example must not be read as a link"
+
+
+def test_llms_checker_ignores_a_link_quoted_in_an_inline_code_span(
+    tmp_path: pathlib.Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Same rule, one line: the spelling ``[x](missing.md)`` in prose is text."""
+    checker = _load_script("check_llms_full")
+    text = (REPO_ROOT / "llms.txt").read_text(encoding="utf-8")
+
+    mutated = tmp_path / "llms.txt"
+    mutated.write_text(
+        text + "\n- The spelling is `[x](does-not-exist.md)` in prose.\n", encoding="utf-8"
+    )
+
+    monkeypatch.setattr(checker, "LLMS_INDEX", mutated)
+    assert checker.main([]) == 0, "a backticked example must not be read as a link"
+
+
+def test_llms_checker_reads_a_link_title_as_syntax_not_a_path(
+    tmp_path: pathlib.Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """``[t](page.md "title")`` addresses ``page.md``; the old grammar asked for the title too."""
+    checker = _load_script("check_llms_full")
+    text = (REPO_ROOT / "llms.txt").read_text(encoding="utf-8")
+
+    mutated = tmp_path / "llms.txt"
+    mutated.write_text(
+        text + '\n- [Guide](llms-full.txt "the full corpus"): exists at the root.\n',
+        encoding="utf-8",
+    )
+
+    monkeypatch.setattr(checker, "LLMS_INDEX", mutated)
+    assert checker.main([]) == 0, "a link title must not become part of the path"

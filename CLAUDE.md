@@ -170,7 +170,10 @@ prds/                design records — read 01–08 before changing public beha
 
 `llms-full.txt` is checked, not trusted: `scripts/check_llms_full.py` fails when
 a name in `__all__` has no `## Name` section or that section has no fenced
-python block.
+python block, and when the `llms.txt` index stops naming a symbol or points at a
+page that does not exist. The index's links are read by
+`scripts/check_docs_contract.py`'s resolver, so `nox -s llms_check` and
+`nox -s docs_contract` cannot disagree about what a link is.
 
 `.gitignore` ignores the outputs that are pure artefacts (`site/`, `dist/`,
 `build/`, the caches, `.nox/`) and deliberately keeps `docs/reference.md` and

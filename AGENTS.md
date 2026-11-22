@@ -24,7 +24,7 @@ of scope for this package, however reasonable the feature sounds.
 ```bash
 pip install -e ".[dev]"
 
-pytest -q                      # full suite: 558 tests (532 on 3.10); +52 parity with ../lauren-framework
+pytest -q                      # full suite: 563 tests (537 on 3.10); +52 parity with ../lauren-framework
 pytest tests/unit -q           # one layer
 pytest -k "visibility" -q      # one topic
 

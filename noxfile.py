@@ -491,6 +491,11 @@ def llms_check(session: nox.Session) -> None:
     symbol, or when a relative link in the index does not resolve. Regenerate
     the corpus with ``python scripts/build_llms_full.py``; the index is
     hand-written and fixed by hand.
+
+    The index's links are read by ``scripts/check_docs_contract.py``'s resolver —
+    one grammar for the one property, not a second regex here — so this session
+    and ``docs_contract`` cannot disagree about what counts as a link or where it
+    resolves from.
     """
     _install_package(session)
     session.run("python", str(SCRIPTS_DIR / "check_llms_full.py"), *session.posargs)
