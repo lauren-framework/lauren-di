@@ -550,8 +550,11 @@ def llms_check(session: nox.Session) -> None:
 def prds(session: nox.Session) -> None:
     """Cross-check the PRD corpus with ``prds/check_consistency.py``.
 
-    Ten checks, none of which had a runner before goal #36: README↔disk index
-    parity, the ten-section template, every relative link, every ``PRD 0N §x``
+    Twelve checks, none of which had a runner before goal #36: README↔disk index
+    parity, the ten-section template, every relative link, every cited evidence
+    artifact (the ``citations`` gate added by goal #14, which fails a
+    ``probe_NN_*.py`` that ``prds/evidence/run_all.py`` does not execute, or an
+    ``out_N.txt`` that no transcript directory holds), every ``PRD 0N §x``
     cross-reference, the decision register, symbol/default/scope agreement
     across PRDs 01-08, the no-web-framework rule, the ``GOALS.md`` registry
     reader, the ``owners`` traceability check that keeps
