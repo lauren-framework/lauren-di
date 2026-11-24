@@ -216,7 +216,7 @@ Not isolated, however you build:
 
 One plan per test, a build function, and no module-level container:
 
-```python
+```python fragment
 import pytest
 
 from lauren_di import OverridePlan, ProviderOverride, Token
