@@ -3,7 +3,7 @@
 **Status:** Draft — 2026-11-24
 **Depends on:** PRDs 01–09
 **Related:** `prds/README.md` §3 (product boundary), §4 (decision register)
-**Probes:** `/tmp/compat/django/probe_1.py` … `probe_8.py`, transcripts `out_1.txt` … `out_8.txt`
+**Evidence:** `examples/apps/django/tests/test_django.py` — DJ-1 … DJ-22 carry the per-fact observations and T13-01 … T13-16 the recipes through real handlers; `nox -s examples` runs them, and §6.5 maps each measured claim to the test that asserts it
 **Frameworks (pinned):** Django 6.1.3, CPython 3.13.13, `lauren-di` 0.x (stdlib-only)
 
 ## 1. Problem Statement
@@ -24,26 +24,27 @@ into one: where does the host get an event loop, and who closes the scope when t
 Three properties of Django make the naive answers wrong, and all three were reproduced:
 
 1. **`AppConfig.ready()` is not an async context.** It runs inside `django.setup()` on the
-   main thread, before any loop exists (`probe_1.py`, `probe_6.py`). Container construction
+   main thread, before any loop exists (DJ-1, T13-01, T13-02). Container construction
    and `compile()` fit there; anything that awaits does not.
 2. **The middleware is not a scope bracket.** A middleware's `finally` runs when the *view
    returns*, which for a streaming response is before the first body chunk is produced
-   (`probe_4.py`, `probe_7.py`: `mw_exit` precedes `chunk0` in both deployments).
+   (T13-06, T13-07: `mw_exit` precedes `chunk0` in both deployments).
 3. **`request_finished` is not a reliable close hook.** Under `WSGIHandler` it never fires at
-   all, for a plain or a streaming response (`probe_7.py`: `wsgi.plain=st,mw_exit` and
+   all, for a plain or a streaming response (T13-07, T13-09: `wsgi.plain=st,mw_exit` and
    `wsgi.stream=st,mw_exit,chunk0,chunk1` — there is no `fin` in either). Under
    `ASGIHandler` and the test client it fires when the view returns, which for a streaming
-   response is *before* the first chunk is produced (`probe_4.py`:
+   response is *before* the first chunk is produced (T13-09:
    `started,finished,mw_exit,chunk0,chunk1`), and it fires a second time when the response is
    closed (`started,finished,finished,mw_exit,chunk0,chunk1`). A hook that can arrive before
    the body *and* twice cannot own the scope.
 
 The failure modes this page has to design around are therefore: a coroutine that is never
 awaited (the WSGI chain returns it and Django raises
-`AttributeError: 'coroutine' object has no attribute '_resource_closers'` — reproduced in
-`probe_3.py` before the middleware capability flags were fixed), a scope that outlives its
+`AttributeError: 'coroutine' object has no attribute '_resource_closers'` — reproduced while
+this recipe was being written, before the middleware capability flags were fixed, and pinned
+the other way round by T13-13), a scope that outlives its
 request (ambient `ContextVar` state leaked between two sequential WSGI requests,
-`probe_3.py`: `wsgi.leak2=leaked`), and a scope torn down while the response body is still
+T13-14: `wsgi.leak2=leaked`), and a scope torn down while the response body is still
 being produced.
 
 "Compatible" for this page means: a Django project can obtain a `ResolutionScope` per
@@ -71,7 +72,7 @@ framework noun entering `lauren-di`'s API (D-57) and no packaged adapter (D-57, 
 - **No Django app, no middleware shipped by `lauren-di`.** The library stays stdlib-only;
   every Django symbol in this page lives in the host project (D-57, D-63).
 - **No `current_scope()` / ambient context API.** v1 adds no `ContextVar` seam (D-58). The
-  measured leak on the WSGI path (`probe_3.py`) is the reason.
+  measured leak on the WSGI path (T13-14) is the reason.
 - **No event-loop bridge in the library.** A synchronous host owns its bridge (D-59); this
   page specifies the two bridge shapes the host may choose between, and measures neither as
   a library feature.
@@ -90,7 +91,8 @@ framework noun entering `lauren-di`'s API (D-57) and no packaged adapter (D-57, 
 | `django-injector` | A single module-level `Injector` built at import, resolved inside views; state is process-global. | Takes the "one container per process, built at startup" shape. Rejects the global lookup: `lauren-di` requires an explicit `ResolutionScope` (D-58). |
 | `pinject`-style bindings | Bindings are declared in a module and resolved by convention; no scope object. | Takes declarative registration (PRD 04). Rejects the absence of a scope: `REQUEST`-scoped teardown needs an owner. |
 | Django's own `connection` handler | `django.db.connections` is thread-affine storage that lazily creates a wrapper per thread and closes it at request boundaries. | This is the model this page copies for *host-owned* resources: hand the value in, never own it (D-61). |
-| `asgiref` adaptation | `sync_to_async(thread_sensitive=True)` / `async_to_sync` bridge the two worlds and copy context into the thread. | Measured here (`probe_3.py`): the copy is one-way and per call; it is not a request-scoped container. |
+| `asgiref` adaptation | `sync_to_async(thread_sensitive=True)` / `async_to_sync` bridge the two worlds and copy context into the thread. | Measured here (T13-13): the copy is one-way and per call; it is not a request-scoped
+container. |
 | ASGI servers (uvicorn, Daphne) | Run each request as its own task, so `ContextVar` state is task-local. | Explains why ASGI *looks* safe and WSGI is not; the recipe must not depend on either. |
 
 The distinguishing property of this page against the async-web and WSGI pages of this series is that Django is the only host
@@ -157,7 +159,7 @@ call; the dedicated-loop shape pays one thread and keeps loop-bound resources al
 (D-59, PRD 09 §5).
 
 Measured with a singleton whose `post_construct` captures the loop and starts a task
-(`probe_2.py`, `out_2.txt`):
+(T13-04, T13-05):
 
 | `startup()` runs on | Loop the view resolves on | Singleton's task |
 | --- | --- | --- |
@@ -171,7 +173,7 @@ awaits something owned by the other loop. That is why DJ-6 forbids a per-request
 
 ### 5.2 Startup: what `ready()` can and cannot do
 
-Measured (`probe_1.py`, `probe_6.py`): `ready()` runs inside `django.setup()`, on the main
+Measured (DJ-1, T13-01, T13-02): `ready()` runs inside `django.setup()`, on the main
 thread, with no running loop, once per process. A second `django.setup()` in the same
 process does not run it again (`ready_after_1setup=1`, `ready_after_2setup=1`).
 
@@ -213,8 +215,7 @@ class MyProjectConfig(AppConfig):
 ```
 
 `ready()` cannot await, cannot assume a loop, and — measured — runs twice across two
-processes under `runserver`'s autoreload (`probe_6.py` run twice: `pid=1842297` and
-`pid=1842679`, one `ready()` each). That is why the container is built per process and why
+processes under `runserver`'s autoreload (T13-02 ran two processes: two pids, one `ready()` each). That is why the container is built per process and why
 DJ-4 forbids exiting the process from `ready()`.
 
 ### 5.3 Per-request scope: a decorator, not a middleware
@@ -265,13 +266,14 @@ Two caveats the host must handle, both measured:
 
 - Django 6.1.3 warns `StreamingHttpResponse must consume synchronous iterators in order to
   serve them asynchronously` when a sync generator is served by `ASGIHandler`
-  (`out_7.txt`). An async view returning a stream should wrap an async iterator instead.
+  (T13-07). An async view returning a stream should wrap an async iterator instead.
 - `streaming_content` assignment is only legal before the response is returned; assign in
   the wrapper, never in the view.
 
 ### 5.4 Sync views, async views, and the bridge
 
-Measured (`probe_3.py`), with an async middleware and a fresh handler per case:
+Measured (T13-03, T13-04, T13-05, T13-13), with an async middleware and a fresh handler per
+case:
 
 | Case | View thread | Running loop inside the view | `ContextVar` from middleware |
 | --- | --- | --- | --- |
@@ -285,11 +287,12 @@ Measured (`probe_3.py`), with an async middleware and a fresh handler per case:
 | DJ-11 | An `async def` view resolves with `await scope.resolve(Token)`: no bridge, no thread hop. |
 | DJ-12 | A `def` view calls the bridge (`bridge.run(...)`); it must not call `asyncio.run()` when it may be running inside a loop (an `async def` view that calls a sync helper). |
 | DJ-13 | `sync_to_async(..., thread_sensitive=True)` is the correct way for an async view to call sync code; it copies context *into* the thread but not back out, so a token resolved inside the thread must be returned explicitly, not stashed in a `ContextVar`. |
-| DJ-14 | A middleware with `async def __call__` must declare `async_capable = True` and `sync_capable = False`, otherwise the WSGI chain returns a coroutine and Django raises `AttributeError: 'coroutine' object has no attribute '_resource_closers'` (reproduced in `probe_3.py` before the flags were added). |
+| DJ-14 | A middleware with `async def __call__` must declare `async_capable = True` and `sync_capable = False`, otherwise the WSGI chain returns a coroutine and Django raises `AttributeError: 'coroutine' object has no attribute '_resource_closers'` (reproduced while this recipe was being written, before the flags were added; T13-13
+asserts the trap stays unreachable). |
 
 ### 5.5 The ORM connection is host-owned
 
-Measured (`probe_5.py`, sqlite3): `django.db.connections["default"]` is thread-affine — a
+Measured (T13-10, T13-11, sqlite3): `django.db.connections["default"]` is thread-affine — a
 worker thread sees a *different* wrapper with no raw connection (`worker.identity_differs=True`,
 `worker.fresh_raw_none=True`), and using the main thread's wrapper in a worker raises
 `DatabaseError` (`worker.captured_wrapper=DatabaseError`). Closing a connection inside
@@ -304,7 +307,7 @@ worker thread sees a *different* wrapper with no raw connection (`worker.identit
 
 ### 5.6 Settings, tests, and the reloader
 
-Measured (`probe_6.py`): `override_settings` changes `settings.FEATURE_FLAG` inside the
+Measured (T13-12): `override_settings` changes `settings.FEATURE_FLAG` inside the
 block (`override_live=changed`) and restores it afterwards (`after_exit=built`), but a value
 captured when the container was built stays stale (`build_snapshot=built`).
 
@@ -316,7 +319,7 @@ captured when the container was built stays stale (`build_snapshot=built`).
 
 ### 5.7 The test client
 
-Measured (`probe_8.py`, `out_8.txt`) — `Client`, `AsyncClient` and a threaded Werkzeug server
+Measured (T13-16, DJ-21) — `Client`, `AsyncClient` and a threaded Werkzeug server
 over the same URLconf:
 
 | Caller | View thread | Running loop | ContextVar left in the caller after the request |
@@ -326,8 +329,7 @@ over the same URLconf:
 | threaded WSGI server (`werkzeug`, same app) | `worker` | no | n/a |
 
 The test client reproduces the *ordering* problems this page designs around — the
-middleware's `finally` before `chunk0`, `request_finished` before the body
-(`probe_4.py`) — but it does not reproduce the server's threading, because it calls the
+middleware's `finally` before `chunk0`, `request_finished` before the body (T13-09) — but it does not reproduce the server's threading, because it calls the
 handler in the test's own context. PRD 12 measured the production shape for the same
 WSGI family: `Thread-N (process_request_thread)`. Two consequences:
 
@@ -357,22 +359,22 @@ The host layer is the only one that imports Django; `lauren-di` sees no framewor
 
 | Need | Django provides | Measured caveat |
 | --- | --- | --- |
-| A place to build and compile | `AppConfig.ready()` | No loop, main thread, once per process (`probe_1.py`, `probe_6.py`). |
+| A place to build and compile | `AppConfig.ready()` | No loop, main thread, once per process (DJ-1, T13-01, T13-02). |
 | A loop to await `startup()` | none — the host must create one | Two viable shapes (D-59); `ready()` cannot await. |
 | A request-bound object | `HttpRequest` | The middleware `__call__` and the view both receive it; attaching attributes is the documented way to carry state. |
-| A bracket around the body | none that is exact | Middleware `finally` precedes the body; `request_finished` is missing under WSGI and duplicated under streaming (`probe_4.py`, `probe_7.py`). |
+| A bracket around the body | none that is exact | Middleware `finally` precedes the body; `request_finished` is missing under WSGI and duplicated under streaming (T13-06, T13-09). |
 | A close signal | `HttpResponseBase.close()` (server-driven), `request_finished` (ASGI, and on `close()`) | Not idempotent (`started,finished` then `finished` again). |
-| Thread-affine DB access | `django.db.connections` | Per-thread wrapper, `DatabaseError` across threads (`probe_5.py`). |
+| Thread-affine DB access | `django.db.connections` | Per-thread wrapper, `DatabaseError` across threads (T13-10). |
 
 ### 6.3 What the host must not do
 
 | Anti-pattern | Why it fails (measured) |
 | --- | --- |
-| Open the scope in middleware and close it in `finally` | `mw_exit` precedes `chunk0` in WSGI, ASGI and the test client (`out_4.txt`, `out_7.txt`). |
-| Close the scope on `request_finished` only | `WSGIHandler` never sends it (`wsgi.plain=st,mw_exit`); the test client and `ASGIHandler` send it before the body and again on close (`out_4.txt`: `started,finished` then `started,finished,finished`). |
+| Open the scope in middleware and close it in `finally` | `mw_exit` precedes `chunk0` in WSGI, ASGI and the test client (T13-06, T13-07). |
+| Close the scope on `request_finished` only | `WSGIHandler` never sends it (`wsgi.plain=st,mw_exit`); the test client and `ASGIHandler` send it before the body and again on close (T13-09: `started,finished` then `started,finished,finished`). |
 | Rely on a `ContextVar` as the scope | Two sequential WSGI requests leaked the value (`wsgi.leak2=leaked`); the ASGI harness leaked too, because the handler ran in the caller's context (`asgi.leak2=leaked`). |
-| Cache a Django connection in a singleton | `worker.captured_wrapper=DatabaseError` (`out_5.txt`). |
-| Close the connection in container teardown | `close_in_atomic=ProgrammingError` — a closed connection inside an atomic block poisons the transaction (`out_5.txt`). |
+| Cache a Django connection in a singleton | `worker.captured_wrapper=DatabaseError` (T13-10). |
+| Close the connection in container teardown | `close_in_atomic=ProgrammingError` — a closed connection inside an atomic block poisons the transaction (T13-11). |
 | `asyncio.run()` inside an `async def` view | `RuntimeError` — a loop is already running in that thread. |
 
 ### 6.4 Cost
@@ -384,23 +386,37 @@ The host layer is the only one that imports Django; `lauren-di` sees no framewor
 | One decorator frame per view | Negligible; `functools.wraps` preserves the view's signature for Django's URL resolver. |
 | No extra query, no extra connection | The connection is passed by reference (`register_value`), so the ORM cost is unchanged. |
 
-### 6.5 Probe inventory
+### 6.5 Evidence index
 
-| Probe | Measures | Transcript |
-| --- | --- | --- |
-| `probe_1.py` | `ready()` call count and thread during `django.setup()` | `out_1.txt` |
-| `probe_2.py` | `asyncio.run()` in `ready()` vs the dedicated loop: which loop the view resolves on, and whether the singleton's task survives (three cases) | `out_2.txt` |
-| `probe_3.py` | WSGI vs ASGI, sync vs async views, view thread and loop, `ContextVar` across `sync_to_async`, ambient leak | `out_3.txt` |
-| `probe_4.py` | `request_started` / `request_finished` with the test client, streaming order, double close | `out_4.txt` |
-| `probe_5.py` | ORM wrapper thread affinity, cross-thread `DatabaseError`, close inside `atomic()` | `out_5.txt` |
-| `probe_6.py` | `ready()` idempotence per process, two processes, `override_settings` staleness | `out_6.txt` |
-| `probe_7.py` | Signal order under `WSGIHandler` and `ASGIHandler`, middleware exit vs first chunk | `out_7.txt` |
-| `probe_8.py` | `Client` vs `AsyncClient` vs a threaded Werkzeug server: view thread, running loop, and the `ContextVar` left behind in the caller | `out_8.txt` |
+The authoring measurements came from eight throwaway scripts (a ready/count probe, a
+loop-comparison probe, a WSGI-vs-ASGI probe, a signals probe, an ORM probe, a
+reload/settings probe, a handler-order probe and a client probe) plus their one-line
+transcripts. None of those files was ever committed, so the previous version of this table
+named artifacts no reader could open. The artifact that replaces them is
+`examples/apps/django/tests/test_django.py`, which `nox -s examples` runs on every push:
+`DJ-1 … DJ-22` assert one fact each, and `T13-01 … T13-16` drive the same recipes through
+real `WSGIHandler` / `ASGIHandler` requests.
 
-Environment: Django 6.1.3, CPython 3.13.13, sqlite3 backend, `DEBUG=False`,
-`ALLOWED_HOSTS=["*"]`, `MIDDLEWARE` overridden per case with
-`django.test.utils.override_settings` and a fresh handler per case. Every probe prints a
-single `R<n>|…|…` line, so a transcript is one line plus warnings.
+| What the authoring script measured | Asserted now by |
+| --- | --- |
+| `ready()` call count and thread during `django.setup()` | `test_dj1_the_container_is_built_by_ready_not_at_import`, `test_dj5_the_container_lives_on_the_app_config`, `test_t13_01_setup_twice_in_one_process_runs_ready_once` |
+| `asyncio.run()` in `ready()` vs the dedicated loop: which loop the view resolves on, whether the singleton's task survives | `test_dj6_one_bridge_loop_per_process_and_sync_views_resolve_on_it`, `test_dj11_an_async_view_awaits_the_scope_on_its_own_loop`, `test_dj12_a_sync_view_bridges_even_inside_a_running_loop` |
+| WSGI vs ASGI, sync vs async views, view thread and loop, `ContextVar` across `sync_to_async`, ambient leak | `test_t13_03_the_wsgi_handler_runs_a_sync_view_on_the_calling_thread`, `test_t13_04_the_asgi_handler_runs_a_sync_view_on_a_worker_thread`, `test_t13_05_the_asgi_handler_runs_an_async_view_on_the_loop_thread`, `test_dj13_a_context_var_cannot_carry_the_scope`, `test_t13_13_there_is_no_middleware_to_declare_async_capable`, `test_t13_14_a_dirty_context_cannot_hand_a_scope_to_the_next_request` |
+| `request_started` / `request_finished` with the test client, streaming order, double close | `test_t13_06_a_wsgi_stream_closes_after_the_last_chunk`, `test_t13_07_an_asgi_stream_closes_in_the_same_order`, `test_t13_08_an_abandoned_stream_closes_exactly_once`, `test_t13_09_request_finished_may_fire_twice_but_the_scope_closes_once`, `test_dj9_a_streaming_response_outlives_the_view` |
+| ORM wrapper thread affinity, cross-thread `DatabaseError`, close inside `atomic()` | `test_dj15_the_connection_is_handed_in_as_a_value`, `test_dj16_the_connection_is_never_a_singleton`, `test_dj17_teardown_never_closes_the_connection`, `test_t13_10_two_threads_get_two_connection_wrappers`, `test_t13_11_teardown_inside_a_transaction_leaves_the_connection_usable` |
+| `ready()` idempotence per process, two processes, `override_settings` staleness | `test_dj18_a_container_built_in_ready_is_a_process_singleton`, `test_t13_01_setup_twice_in_one_process_runs_ready_once`, `test_t13_02_two_processes_each_run_ready_once`, `test_t13_12_a_test_that_changes_settings_builds_its_own_container` |
+| Signal order under `WSGIHandler` and `ASGIHandler`, middleware exit vs first chunk | `test_dj8_no_middleware_attaches_or_brackets_anything`, `test_t13_06_a_wsgi_stream_closes_after_the_last_chunk`, `test_t13_07_an_asgi_stream_closes_in_the_same_order` |
+| `Client` vs `AsyncClient` vs a threaded Werkzeug server: view thread, running loop, `ContextVar` left in the caller | `test_dj21_the_client_runs_the_view_on_the_callers_thread_and_dirties_it`, `test_dj22_there_is_no_ambient_scope_to_lean_on`, `test_t13_16_the_client_is_not_a_threaded_server` |
+
+Environment for both the authoring run and the tests: Django 6.1.3 (pinned in
+`examples/apps/django/requirements.txt`, with Werkzeug 3.1.9 for the threaded-server
+comparison), CPython 3.13.13, sqlite3 backend, `DEBUG=False`, `ALLOWED_HOSTS=["*"]`,
+`MIDDLEWARE` overridden per case with `django.test.utils.override_settings` and a fresh
+handler per case. The `R<n>|…|…` one-line form was the authoring scripts' own output format;
+the tests assert the same facts through `assert`, so there is no transcript to diff — the
+values quoted in §5 (for example `worker.identity_differs=True` or
+`close_in_atomic=ProgrammingError`) are the authoring transcripts' text, and the test named
+beside each is what fails if the behaviour changes.
 
 ## 7. Error Catalog Impact
 
@@ -455,8 +471,8 @@ Deliverable: the `with_scope` decorator recipe and a conformance test matrix ove
 `{WSGIHandler, ASGIHandler} × {def view, async def view, StreamingHttpResponse}`.
 
 - Guard: the ASGI half needs a driver that blocks on the second `receive()`; Django asserts
-  `Invalid ASGI message after request body: http.request` otherwise (observed in
-  `out_7.txt` while the probe was being written).
+  `Invalid ASGI message after request body: http.request` otherwise (hit while this guard was
+  being written; T13-07 pins it).
 - Exit criteria: close counter equals 1 per request in all six cells; for the streaming
   cells the counter increments *after* the last chunk is delivered.
 
@@ -503,8 +519,9 @@ autoreload note (two processes, two containers, one `ready()` each).
 Conventions this page fixes:
 
 1. Compatibility recipes are documentation plus skip-guarded tests; they add no public name.
-2. Every recipe names the probe that justifies it, and every measured claim names a probe
-   file plus a transcript (§6.5).
+2. Every recipe names the shipped test that asserts it — `DJ-nn` in `examples/apps/django/tests/test_django.py`,
+   `T13-nn` for the handler-level rows — and every measured claim names that test rather than a probe
+   file (§6.5). A claim with no test says so in the row.
 3. Framework imports appear only inside `skip`/`fragment` fences (D-63).
 4. A host that owns a resource owns its teardown; the container only holds a reference
    (D-61).
@@ -536,7 +553,9 @@ failure.
 
 Exit criteria for the page: T13-01 … T13-16 pass with Django 6.1.3 installed, and the whole
 file skips (no failures, no errors) when `django` is absent. The measured-claim set backing
-this page is `probe_1.py`'s verbose block, `probe_2.py`'s three-row loop comparison, and the
-six single-line transcripts `R3` … `R8` in `out_3.txt` … `out_8.txt`; the negative result is
+this page is `examples/apps/django/tests/test_django.py`: DJ-1 … DJ-22 carry the per-fact
+observations and T13-01 … T13-16 the recipes through real handlers, and the authoring
+transcripts those numbers were first printed by were throwaway scripts that are not in the
+repository; the negative result is
 recorded in §6.3 (no host hook brackets a streamed body, so the scope bracket must be the
 view wrapper).

@@ -50,6 +50,10 @@ SCRIPTS_DIR = ROOT / "scripts"
 #: suite checks and this file reads, so a new app is one entry, not two edits.
 EXAMPLES_APPS_DIR = ROOT / "examples" / "apps"
 EXAMPLES_MANIFEST = EXAMPLES_APPS_DIR / "apps.json"
+#: Every app's pins *and* the closure they resolve to, recorded once so the venv
+#: that runs the examples cannot float underneath the tests it green-lights.
+EXAMPLES_CONSTRAINTS = EXAMPLES_APPS_DIR / "constraints.txt"
+EXAMPLES_PINS = EXAMPLES_APPS_DIR / "_pins.py"
 DOCS_DIR = ROOT / "docs"
 SITE_DIR = ROOT / "site"
 DIST_DIR = ROOT / "dist"
@@ -194,8 +198,22 @@ def examples(session: nox.Session) -> None:
     install here is reported as a skip with a reason instead of a green run that
     measured nothing -- the failure mode this session exists to prevent is a
     framework sample that never executed.
+
+    The install is constrained by ``examples/apps/constraints.txt``, the recorded
+    closure of every app's requirements, and then *verified* against it before
+    the suite runs. Pinning the hosts alone was not enough: the T14-08 failure
+    proved that an unpinned transitive -- Click, which Typer does not constrain --
+    silently decided whether an injected parameter raised at build time or became
+    a positional argument, so a green run meant something different from what the
+    test recorded. With the constraint file, the resolution is the one the
+    evidence was recorded on, or this session fails and says which pin disagrees.
     """
     _install_package(session, "dev")
+    if not EXAMPLES_CONSTRAINTS.is_file():
+        session.error(
+            f"{EXAMPLES_CONSTRAINTS.relative_to(ROOT)} is missing: the apps' resolved "
+            "dependency closure is what makes their measured behaviour reproducible"
+        )
     apps = json.loads(EXAMPLES_MANIFEST.read_text(encoding="utf-8"))["apps"]
     requests: list[str] = []
     for app in apps:
@@ -204,7 +222,8 @@ def examples(session: nox.Session) -> None:
             session.error(f"{requirement} is missing: {app['name']} has no pinned host")
             return  # unreachable: session.error raises
         requests.extend(["-r", str(requirement)])
-    session.install(*requests)
+    session.install("-c", str(EXAMPLES_CONSTRAINTS), *requests)
+    session.run("python", str(EXAMPLES_PINS), "--verify")
     session.run("pytest", str(EXAMPLES_APPS_DIR), "-q", *session.posargs)
 
 
@@ -550,8 +569,11 @@ def llms_check(session: nox.Session) -> None:
 def prds(session: nox.Session) -> None:
     """Cross-check the PRD corpus with ``prds/check_consistency.py``.
 
-    Ten checks, none of which had a runner before goal #36: README↔disk index
-    parity, the ten-section template, every relative link, every ``PRD 0N §x``
+    Twelve checks, none of which had a runner before goal #36: README↔disk index
+    parity, the ten-section template, every relative link, every cited evidence
+    artifact (the ``citations`` gate added by goal #14, which fails a
+    ``probe_NN_*.py`` that ``prds/evidence/run_all.py`` does not execute, or an
+    ``out_N.txt`` that no transcript directory holds), every ``PRD 0N §x``
     cross-reference, the decision register, symbol/default/scope agreement
     across PRDs 01-08, the no-web-framework rule, the ``GOALS.md`` registry
     reader, the ``owners`` traceability check that keeps
@@ -587,15 +609,16 @@ def prds_evidence(session: nox.Session) -> None:
     same "a check nobody runs is not a check" defect ``prds`` (goal #36) closed
     for the corpus checker one level up.
 
-    The session is pinned to ``PRIMARY_PYTHON`` and refuses any other
-    interpreter. A probe prints what the reference *raised*, and two of those
-    observations quote CPython rather than ``lauren``: ``E-306c`` records
-    asyncio's message (``a coroutine was expected, got False`` on 3.13,
-    ``An asyncio.Future, a coroutine or an awaitable is required`` on 3.14) and
-    ``E-53`` records how 3.14 renders a function annotation
-    (``__main__.fn_other``) versus 3.13's bare ``fn_other``. The recorded
-    transcripts were therefore re-recorded on the primary interpreter, so the
-    gate is reproducible on the interpreter every other gate runs.
+    The session is pinned to ``PRIMARY_PYTHON``. That pin is a *recording*
+    convention, not a correctness requirement: the two probes that once quoted
+    CPython's own text have been rewritten to report version-stable
+    discriminators (``E-306c`` now prints the value ``has_provider`` returns
+    instead of asyncio's complaint about being handed a ``bool``; ``E-53``
+    decomposes the ``Annotated`` alias instead of relying on the release's
+    spelling of a function argument), so ``--check`` passes on 3.13 and 3.14
+    alike — measured on both — and each header records the interpreter it was
+    recorded on. The pin keeps a re-record on the interpreter every other gate
+    runs, and ``--check`` never treats the recorded interpreter as drift.
 
     The reference checkout must be **clean**. A dirty tree is a different build
     from the pinned commit — this repository's sibling checkout carries
@@ -622,11 +645,14 @@ def prds_evidence(session: nox.Session) -> None:
     requested = getattr(session, "python", PRIMARY_PYTHON)
     if requested != PRIMARY_PYTHON:
         session.error(
-            f"the recorded transcripts were captured on Python {PRIMARY_PYTHON} and two "
-            f"probes quote CPython's own error text, so running this session on "
-            f"{requested} reports drift that is not a change in `lauren`. Drop `--python` "
-            f"(or pass --python {PRIMARY_PYTHON}) and re-record deliberately — "
-            "`python prds/evidence/run_all.py` — if the corpus should move."
+            f"the transcripts name Python {PRIMARY_PYTHON} as the interpreter they were "
+            f"captured on, so this session records and replays on {PRIMARY_PYTHON} only; "
+            f"a run on {requested} would relabel the corpus with an interpreter the rest "
+            f"of the gate set does not use. `--check` is itself version-independent (the "
+            f"two probes that used to quote CPython now report stable discriminators, "
+            f"measured on 3.13 and 3.14, and the header records which interpreter "
+            "recorded each transcript), so run `python prds/evidence/run_all.py --check` "
+            "on another interpreter if that is what you want to prove."
         )
     session.install(*REFERENCE_DEPENDENCIES)
     session.run("python", str(PRDS_EVIDENCE_RUN_ALL), "--check", *session.posargs)

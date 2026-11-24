@@ -244,13 +244,17 @@ def test_t09_10_the_sync_bridge_serves_many_resolves_on_one_loop() -> None:
     try:
         bridge.run(container.startup())
         scopes = [bridge.run(_open_scope(container, index)) for index in range(4)]
-        errors: list[BaseException] = []
+        errors: list[Exception] = []
 
         def worker(scope: Any) -> None:
             try:
                 for _ in range(25):
                     bridge.run(scope.resolve(reference.Repo))
-            except BaseException as exc:  # pragma: no cover - the failure path
+            except Exception as exc:  # pragma: no cover - the failure path
+                # ``Exception``, not ``BaseException``: a failing resolve is
+                # recorded and fails the assertion below, while a control-flow
+                # exception (``KeyboardInterrupt``, ``SystemExit``) must keep
+                # propagating instead of being filed as a test artifact.
                 errors.append(exc)
 
         threads = [threading.Thread(target=worker, args=(scope,)) for scope in scopes]
@@ -454,9 +458,12 @@ def test_t09_17_a_closed_scope_refuses_further_resolution() -> None:
 
 def test_t09_18_the_public_surface_is_unchanged() -> None:
     """T09-18 / G10: exactly 38 names, none host-specific (PRD 01 §5.3)."""
-    import lauren_di
+    # The names the package *publishes*, taken from the module attribute rather
+    # than from a second spelling of the import: ``lauren_di`` is already
+    # imported by name above, and importing a module both ways is the same
+    # surface stated twice.
+    from lauren_di import __all__ as exported
 
-    exported = lauren_di.__all__
     assert len(exported) == 38, f"the public surface is {len(exported)} names, not 38"
     assert len(set(exported)) == len(exported)
     host_specific = {

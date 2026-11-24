@@ -138,9 +138,7 @@ class TestFactoryOverride:
 
     def test_factory_is_called_instead_of_the_class(self) -> None:
         """The resolved object comes from the override factory."""
-        plan = OverridePlan(
-            {Clock: ProviderOverride(token=Clock, kind="factory", factory=lambda: Frozen())}
-        )
+        plan = OverridePlan({Clock: ProviderOverride(token=Clock, kind="factory", factory=Frozen)})
         container = DIContainer(overrides=plan)
         container.register(Clock)
         container.compile()
@@ -222,6 +220,9 @@ class TestOverrideErrors:
 
         class FakeRepository(Repository):
             def __init__(self) -> None:
+                super().__init__()  # CodeQL py/missing-call-to-init: the base
+                # initialiser still runs; only the value the test asserts on is
+                # replaced.
                 self.source = "fake"
 
         @injectable()

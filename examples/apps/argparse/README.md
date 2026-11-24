@@ -50,7 +50,7 @@ python -m pytest examples/apps/argparse -q
 nox -s examples
 
 # install the host this app pins
-pip install -r examples/apps/argparse/requirements.txt
+pip install -c examples/apps/constraints.txt -r examples/apps/argparse/requirements.txt
 ```
 
 The test client is `argparse.ArgumentParser.parse_args` with an explicit `argv`.

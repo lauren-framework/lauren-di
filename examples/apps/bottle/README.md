@@ -108,7 +108,7 @@ python -m pytest examples/apps/bottle -q
 nox -s examples
 
 # install the host this app pins
-pip install -r examples/apps/bottle/requirements.txt
+pip install -c examples/apps/constraints.txt -r examples/apps/bottle/requirements.txt
 ```
 
 The test client is the WSGI callable driven directly with an `environ` mapping.

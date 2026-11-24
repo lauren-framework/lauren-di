@@ -78,7 +78,7 @@ python examples/apps/starlette/starlette_app.py
 nox -s examples
 
 # install the host this app pins
-pip install -r examples/apps/starlette/requirements.txt
+pip install -c examples/apps/constraints.txt -r examples/apps/starlette/requirements.txt
 ```
 
 The test client is `starlette.testclient.TestClient` (needs `httpx`).

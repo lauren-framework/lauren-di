@@ -51,7 +51,12 @@ class TestTokenIdentity:
         second = Token("X")
 
         assert first != second
-        assert first == first
+        # Reflexivity, asked of the protocol directly: the identity regime must
+        # still say a token equals itself, or a registry keyed by the very token
+        # it was registered with would never find it.  ``first == first`` states
+        # the same thing but reads as a tautology to every linter -- and to a
+        # reader skimming for a real assertion.
+        assert first.__eq__(first) is True
         assert hash(first) != hash(second)
 
     def test_shared_tokens_compare_by_name(self) -> None:

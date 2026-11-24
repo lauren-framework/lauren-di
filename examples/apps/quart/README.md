@@ -50,7 +50,7 @@ python -m pytest examples/apps/quart -q
 nox -s examples
 
 # install the host this app pins
-pip install -r examples/apps/quart/requirements.txt
+pip install -c examples/apps/constraints.txt -r examples/apps/quart/requirements.txt
 ```
 
 The test client is `quart.testing.QuartClient`.

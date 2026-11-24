@@ -27,10 +27,9 @@ from dataclasses import dataclass
 from typing import Annotated
 from uuid import uuid4
 
-import aiohttp_di
 from _host import build_container
 from aiohttp import web
-from aiohttp_di import AIOHTTP_REQUEST_TOKEN, Closed, current_scope
+from aiohttp_di import AIOHTTP_REQUEST_TOKEN, CLOSES, SCOPE_KEY, Closed, current_scope, install
 from lauren_di import (
     DIContainer,
     Inject,
@@ -135,7 +134,7 @@ class Example:
     @property
     def closes(self) -> list[Closed]:
         """Every close the middleware performed, in order."""
-        return self.app[aiohttp_di.CLOSES]
+        return self.app[CLOSES]
 
 
 def create_container(recorder: Recorder) -> DIContainer:
@@ -166,7 +165,7 @@ async def _own_body(request: web.Request, lines: list[bytes]) -> web.StreamRespo
 def build_app(recorder: Recorder, container: DIContainer) -> web.Application:
     """Build the aiohttp app: the adapter's middleware, the routes, the signals."""
     app = web.Application()
-    aiohttp_di.install(app, container, report=recorder.report_errors)
+    install(app, container, report=recorder.report_errors)
 
     async def record_prepare(request: web.Request, response: web.StreamResponse) -> None:
         """Recorded to show where aiohttp is about to write headers — and what is left.
@@ -216,7 +215,7 @@ def build_app(recorder: Recorder, container: DIContainer) -> web.Application:
         so the test asserts what the host store contains: a ``ResolutionScope``, not
         ``None``, and the same object the handler resolves through.
         """
-        stored = request.get(aiohttp_di.SCOPE_KEY)
+        stored = request.get(SCOPE_KEY)
         scope = current_scope(request)
         payload = json.dumps(
             {

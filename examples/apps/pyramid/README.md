@@ -106,7 +106,7 @@ python -m pytest examples/apps/pyramid -q
 nox -s examples
 
 # install the host this app pins
-pip install -r examples/apps/pyramid/requirements.txt
+pip install -c examples/apps/constraints.txt -r examples/apps/pyramid/requirements.txt
 ```
 
 The test client is `webtest.TestApp` (PRD 12 §5.8: any WSGI client). The chunk-order

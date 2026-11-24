@@ -50,7 +50,7 @@ python -m pytest examples/apps/typer -q
 nox -s examples
 
 # install the host this app pins
-pip install -r examples/apps/typer/requirements.txt
+pip install -c examples/apps/constraints.txt -r examples/apps/typer/requirements.txt
 ```
 
 The test client is `typer.testing.CliRunner`.

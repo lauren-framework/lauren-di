@@ -1,6 +1,7 @@
 # probe: prd08/p3.py
 # lauren.__file__: <reference>/lauren/__init__.py
 # reference._di.__init__.py sha256: 22d1c3f33814c02ed14dc6129cfc82c8ecdaf87461c09875dee6823ec3289bd2
+# python: CPython 3.14.4
 # exit: 0
 E-411 compile with a Request parameter   -> ok: None
 E-412 resolve without framework_values   -> MissingProviderError | No provider for Request

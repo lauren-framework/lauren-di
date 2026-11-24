@@ -22,8 +22,12 @@ prose assertions.  This runner makes the chain reproducible:
 ``--check`` is the gate: ``nox -s prds_evidence`` runs it, ``nox -s ci`` runs
 that session, and ``.github/workflows/lint.yml`` runs it on every push, so the
 citations are re-audited after every probe or PRD edit instead of only when a
-human remembers the command.  Measured on ``f2d9a34``: 14 s, no writes, 188 cited
-ids, 260 emitted, 0 cited-but-not-emitted.
+human remembers the command.  Measured on the corpus this file ships with: 15 s,
+no writes, 190 cited ids, 262 emitted, 0 cited-but-not-emitted.  Each header also
+names the interpreter the transcript was recorded on (``# python:``), which
+``--check`` reports but does not compare: the probes emit version-stable text, so
+the corpus replays on 3.13 and 3.14 alike (measured on both) and the line exists
+to tell a reader where the capture happened.
 
 Usage::
 
@@ -41,6 +45,7 @@ import difflib
 import hashlib
 import json
 import os
+import platform
 import re
 import subprocess
 import sys
@@ -62,6 +67,9 @@ OUTPUT = EVIDENCE / "output"
 
 ID_RE = re.compile(r"\bE-\d{2,3}[a-z]?\b")
 ADDR_RE = re.compile(r"0x[0-9a-fA-F]+")
+#: The header line naming the recording interpreter, matched by
+#: :func:`normalise_python` so a cross-interpreter ``--check`` is not a byte diff.
+PYTHON_HEADER_RE = re.compile(r"^# python: (?P<version>.+)$", re.MULTILINE)
 RESERVED_HEADING = "**Reserved ids.**"
 #: What the reference root is written as in a transcript header, so a recorded
 #: transcript names the artifact it measured rather than the machine that ran it.
@@ -191,13 +199,38 @@ def header(script: Path, origin: str, di_sha: str, code: int) -> str:
     ``_di/__init__.py`` sha256 below it is *what* was captured, and that is the
     part worth comparing byte for byte. :func:`normalise_origin` is the same rule
     applied to the committed index.
+
+    ``# python:`` names the interpreter that recorded the transcript. It is
+    recorded rather than compared: the two probes that used to quote CPython's own
+    text (``E-306c``'s asyncio message, ``E-53``'s function-annotation spelling)
+    now report version-stable discriminators, so the *body* reproduces on any
+    interpreter, and :func:`normalise_python` keeps this one line from turning a
+    cross-interpreter run into a byte diff that looks like repository drift.
     """
     return (
         f"# probe: {script.relative_to(EVIDENCE).as_posix()}\n"
         f"# lauren.__file__: {normalise_origin(origin)}\n"
         f"# reference._di.__init__.py sha256: {di_sha}\n"
+        f"# python: {platform.python_implementation()} {platform.python_version()}\n"
         f"# exit: {code}\n"
     )
+
+
+def normalise_python(transcript: str) -> str:
+    """Blank the header's ``# python:`` line so comparison ignores it.
+
+    The line names where the transcript was recorded, which a reader wants and a
+    gate must not require: the corpus is reproducible on 3.13 and 3.14 by
+    construction now, so failing on the difference would re-introduce exactly the
+    single-interpreter dependency the stable discriminators removed.
+    """
+    return PYTHON_HEADER_RE.sub("# python: <recorded elsewhere>", transcript)
+
+
+def recorded_python(transcript: str) -> str | None:
+    """The interpreter a recorded transcript names, for the drift message."""
+    match = PYTHON_HEADER_RE.search(transcript)
+    return match.group(1) if match else None
 
 
 def cited_ids() -> set[str]:
@@ -414,10 +447,22 @@ def main(argv: list[str] | None = None) -> int:
             else:
                 previous = destination.read_text()
                 if previous != recorded:
-                    drift.append(
-                        f"{rel.as_posix()} -> {destination.relative_to(EVIDENCE).as_posix()}"
-                    )
-                    diff.append((rel.as_posix(), previous, recorded))
+                    # The header names the recording interpreter, and that line is
+                    # informational: the body is version-stable by construction, so
+                    # a run on another interpreter must not be reported as drift.
+                    if normalise_python(previous) == normalise_python(recorded):
+                        recorded_on = recorded_python(previous)
+                        here = f"{platform.python_implementation()} {platform.python_version()}"
+                        if recorded_on and recorded_on != here:
+                            print(
+                                f"         note: {rel.as_posix()} was recorded on "
+                                f"{recorded_on}, replayed on {here}; body identical"
+                            )
+                    else:
+                        drift.append(
+                            f"{rel.as_posix()} -> {destination.relative_to(EVIDENCE).as_posix()}"
+                        )
+                        diff.append((rel.as_posix(), previous, recorded))
         else:
             destination.write_text(recorded)
         status = "ok " if code == 0 else "FAIL"

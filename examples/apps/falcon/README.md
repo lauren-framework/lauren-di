@@ -77,7 +77,7 @@ Both modules import the shared, framework-free reference adapter from
 ## Run
 
 ```bash
-pip install -r examples/apps/falcon/requirements.txt
+pip install -c examples/apps/constraints.txt -r examples/apps/falcon/requirements.txt
 python examples/apps/falcon/falcon_app.py   # http://127.0.0.1:8001/hello, /stream, /oops
 python -m pytest examples/apps/falcon
 ```

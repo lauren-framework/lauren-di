@@ -234,12 +234,22 @@ The final consistency pass (goal #10) checks, and this file records:
    `§6.4` row must exist in PRD 08 §5.9, every `PRD NN §6.4 row N` citation must
    resolve to a row that names that `P-n` back, and every §5.9 row marked
    `**divergence:**` must be named by the register sentence.
+8. **Evidence citations** (goal #14) — every §6.5 Evidence index citation that
+   names a probe or a transcript resolves to something a reader can run. A
+   backticked `*probe*.py` must be a script `prds/evidence/run_all.py` actually
+   executes (the check imports the runner and reuses its `probes()` inventory, so
+   "executed" has one definition), and a backticked `out_N.txt` must exist under
+   `prds/evidence/output/`. Both shapes are scanned across all PRD pages and
+   `docs/**/*.md`. This check is why the host-compatibility indexes (09–14) now
+   name tests and claim ids instead of authoring-time scripts that were never
+   committed: 118 citations across seven pages failed the first run.
 
 Result of the last run: **passed** (2026-11-24, the 09–14 integration pass). Rerun with
 `python3 prds/check_consistency.py` — exit 0 means clean; the script *is* the check, not a
 description of it. Its teeth were tested: six seeded regressions (a `shutdown()` returning `None`,
 a dangling link, a renamed section, a non-existent cross-reference, a deleted decision row, and an
-unguarded `from lauren import`) each make it exit 1.
+unguarded `from lauren import`) each make it exit 1, and the citations check was seeded the same
+way — a valid probe path and a unique basename pass, an ambiguous basename and a dead probe exit 1.
 
 | Check | Result |
 |-------|--------|
@@ -250,6 +260,7 @@ unguarded `from lauren import`) each make it exit 1.
 | Scope discipline | script-checked: pages 01–08 import no framework, pages 09–14 show one only in a `fragment`/`skip` fence (D-63), and in PRDs 01–07 a code sample may `import lauren` only inside PRD 02's `LAUREN_DI_PARITY_TARGET`-guarded shim (0 unguarded samples); `HTTP`/`ASGI` nouns otherwise appear only in non-goals, prior art and the compatibility pages |
 | PRD code blocks | 118 python blocks in 14 pages — 118 compile, 31 marked `run` (executed by `tests/docs/test_prd_examples.py`), 87 `fragment`/`skip`, 0 unmarked |
 | Divergence registers | 3 `§6.4` registers — PRD 02's 9 rows, PRD 03's 11, PRD 04's 10 — every typed count and parity claim agrees with its row set, and PRD 08 §5.9's 14 invariants cross-reference them both ways |
+| Evidence citations | 30 pages scanned; no page cites a probe filename any more (the host pages name tests and claim ids), the transcript arm resolves against the 23 recorded transcripts on disk, and both shapes are still enforced — keyed by basename *and* relative path, so `prd07/p1.py` and `prd08/p1.py` cannot mask each other and an ambiguous basename fails instead of passing on a collision |
 
 ### 6.1 Findings fixed by this pass
 
@@ -296,7 +307,17 @@ Pages 09–14 were written and verified against installed frameworks rather than
    a click group that routed subcommands through the wrong root, and an override probe that crashed
    before recording its result — plus one claim (PRD 14 H-24) whose quoted cost range excluded a
    measurement in its own transcript. All four were fixed at the probe and the page was rewritten
-   from the fresh transcript; no page now cites a number that a re-run does not reproduce.
+   from the fresh transcript.
+
+   That last pass left the pages resting on artifacts a reader could not open — the probes were
+   throwaway scripts under `/tmp` — so goal #14 replaced every §6.5 index with a claim-id →
+   runnable-artifact table and added the `citations` gate (§6, item 8) to keep it that way. The
+   rule that survives is narrower than "a re-run reproduces every number", because it cannot be:
+   the **behavioural** figures on 09–14 (call counts, exit codes, thread and loop identities,
+   event orderings) are asserted by shipped tests, so a re-run reproduces them or the suite goes
+   red; the **timing** figures are not asserted by anything, and the two pages that publish them
+   say so in place (PRD 09 §6.4, PRD 14 §6.4) and name the ordering claim that is asserted beside
+   each band.
 
 ## 7. Adding a PRD
 

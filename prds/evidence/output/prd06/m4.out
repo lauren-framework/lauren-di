@@ -1,6 +1,7 @@
 # probe: prd06/m4.py
 # lauren.__file__: <reference>/lauren/__init__.py
 # reference._di.__init__.py sha256: 22d1c3f33814c02ed14dc6129cfc82c8ecdaf87461c09875dee6823ec3289bd2
+# python: CPython 3.14.4
 # exit: 0
 E-215 compile, protocol token granted to both              -> ok: 
 E-215b list[Sender] from ModA (grant={Sender})             -> MissingProviderError | detail: {'token': 'list', 'module': 'ModA'} | msg: No provider for Sender (requested as list) visible from module ModA

@@ -124,7 +124,7 @@ The same measurements read the other way round, dimension by dimension:
 | **sync handler** | portal thread, contextvars copied (LIT-5) | `asyncio_0` thread (QRT-5) | **loop thread** (SNC-4) | **loop thread** (AIO-5) |
 | **streaming API** | `Stream(gen(), background=...)` | `return gen()` | `request.respond()` + `send`/`eof` | `StreamResponse.prepare` + `write`/`write_eof` |
 | **background** | `BackgroundTask` — before `after_response`, before the ASGI close (LIT-2, LIT-3) | `app.add_background_task` — runs inside the body window (QRT-2) | `app.add_task` — after `chunk.0`, before `gen.done` (SNC-2) | `asyncio.create_task` — after the middleware's close (AIO-2) |
-| **test client** | `TestClient` runs hooks only inside `with` (LIT-1) | `test_client()` runs **no** serving hook (QRT-5) | **none built in** (SNC-5) | `TestClient(TestServer(app))` runs both (AIO-1) |
+| **test client** | `TestClient` runs hooks only inside `with` (LIT-1) | `test_client()` runs **no** serving hook, and is `async with` only (QRT-5) | **none built in** (SNC-5) | `TestClient(TestServer(app))` runs both (AIO-1) |
 | **adapter verdict** | ASGI middleware | ASGI wrapper | ASGI wrapper | write-loop contract |
 
 ### 5.2 Litestar: own the scope in `ASGIMiddleware`
@@ -167,15 +167,40 @@ Two details are load-bearing and both were found the hard way:
   locals — the same "no state on the middleware" rule PRD 09 §5.2 states for every host.
 
 `after_response` is the second correct owner (LIT-3), and is the one to use when the
-application already has Litestar hooks and cannot add ASGI middleware:
+application already has Litestar hooks and cannot add ASGI middleware. It is a pair: a
+`before_request` hook that opens the scope, and one `after_response` callable that closes it.
 
 ```python skip
-async def close_scope(response):
-    await response.request.state.di.close()
+from litestar import Request
 
 
-app = Litestar(route_handlers=[read_order], after_response=[close_scope])
+async def open_hook(request: Request) -> None:
+    request.scope.setdefault("state", {})["di"] = container.scope(
+        values={"scope": request.scope}
+    )
+
+
+async def close_scope(request: Request) -> None:
+    await request.state.di.close()
+
+
+app = Litestar(
+    route_handlers=[read_order],
+    before_request=open_hook,
+    after_response=close_scope,
+)
 ```
+
+Two details there are corrections measured on litestar 2.25.0, not style. The app-level
+hooks take **one callable**, never a list: `after_response=[close_scope]` builds without
+complaint and then fails *every* request with `TypeError: 'list' object is not callable`,
+which the exception middleware surfaces as `LitestarException: Exception caught after
+response started` (the parameter is annotated `AfterResponseHookHandler | None`). And the
+hook receives the **request**, not the response, so `response.request.state.di` raises
+`AttributeError: 'Request' object has no attribute 'request'`; `request.state` is the
+proxy for the same `scope["state"]` map both installs write. Re-run against the
+three-chunk route, the order is `scope.opened`, `chunk.0`, `chunk.1`, `chunk.2` — every
+chunk observing `closed=False` — then `scope.closed`.
 
 `after_request` must not be used: measured order `after_request`, `chunk.0`, `chunk.1`,
 `chunk.2`, `gen.done` (LIT-3) — the same failure PRD 10 measured for
@@ -385,22 +410,32 @@ this page is the 20 ms chunk interval that makes the order legible.
 
 ### 6.5 Evidence index
 
-Every claim is one transcript, produced on CPython 3.13.13 with `PYTHONPATH` pinned to
-this checkout. The first line of each transcript prints the framework version.
+Every claim is asserted by a test in `examples/apps/`, which `nox -s examples` runs on every
+push. The authoring measurements came from throwaway scripts under `/tmp` that were never
+committed — one per framework, plus a second Quart run through Hypercorn over a real socket
+and a third Litestar configuration for the portal-thread row — so a citation of the form
+"see probe_11a_litestar.py" named a file no reader could open. The table names the test
+that keeps each id true.
 
-| Probe | Versions | Claims |
+| Framework | Claims and the tests that assert them | Versions measured |
 |---|---|---|
-| `probe_11a_litestar.py` | litestar 2.25.0 | LIT-1 (lifecycle order, TestClient context), LIT-2 (ASGI close point, background), LIT-3 (`after_request` vs `after_response`), LIT-4 (`scope["state"]` is `request.state`) |
-| `probe_11b_quart.py` | quart 0.23.1, werkzeug 3.1.9 | QRT-2 (teardown before the body), QRT-3 (ASGI wrapper), QRT-4 (`g`), QRT-5 (sync thread, no serving hook) |
-| `probe_11b2_quart_server.py` | quart 0.23.1, hypercorn 0.18.0 | QRT-1 (`before_serving`/`after_serving`), QRT-2 over a real socket |
-| `probe_11c_sanic.py` | sanic 25.12.1, hypercorn 0.18.0 | SNC-1 (server listeners), SNC-2 (response middleware before the body), SNC-3 (`request.ctx`), SNC-4 (loop thread), SNC-5 (no built-in client) |
-| `probe_11d_aiohttp.py` | aiohttp 3.14.5 | AIO-1 (`on_startup`/`on_shutdown` via `TestServer`), AIO-2 (write-loop close), AIO-3 (returned response), AIO-4 (request mapping), AIO-5 (loop thread) |
-| `probe_11a_litestar.py` (config C) | litestar 2.25.0 | LIT-5 (portal thread, contextvars copied) |
+| Litestar | LIT-1 (`tests/test_litestar.py::test_boot_hook_starts_the_container_before_the_first_request`, `::test_test_client_runs_the_hooks_only_inside_the_context`), LIT-2 (`::test_streaming_closes_after_the_body`, `::test_background_task_sees_an_open_scope`), LIT-3 (`::test_after_response_is_a_valid_second_owner`, `::test_after_response_hook_is_a_single_callable`), LIT-4 (`::test_scope_is_in_the_host_store`), LIT-5 (`::test_sync_handler_runs_off_the_event_loop`) | litestar 2.25.0, httpx 0.28.1 |
+| Quart | QRT-1 (`::test_serving_hook_starts_the_container_before_the_first_request`), QRT-2 (`::test_teardown_request_is_not_an_owner`), QRT-3 (`::test_streaming_closes_after_the_body`), QRT-4 (`::test_scope_is_in_the_host_store`), QRT-5 (`::test_sync_view_runs_off_the_event_loop`, `::test_test_client_runs_no_serving_hook`) | quart 0.23.1 |
+| Sanic | SNC-1 (`::test_container_starts_before_the_host_serves_and_stops_after`, `::test_streaming_handler_may_return_none`), SNC-2 (`::test_response_middleware_runs_before_the_body_so_it_cannot_close`, `::test_teardown_owner_is_not_the_response_middleware`), SNC-3 (`::test_scope_is_in_the_host_store`), SNC-4 (`::test_sync_handler_runs_on_the_main_thread`), SNC-5 (`::test_the_lifespan_must_be_entered_explicitly`) | sanic 25.12.1 |
+| aiohttp | AIO-1 (`::test_test_client_runs_both_lifecycle_hooks`), AIO-2 (`::test_close_happens_after_the_final_body_chunk`, `::test_work_after_the_body_sees_an_open_unit`), AIO-3 (`::test_unwritten_response_closes_before_the_body`), AIO-4 (`::test_scope_is_in_the_host_store`, `::test_value_token_carries_the_aiohttp_request`), AIO-5 (`::test_sync_handler_runs_on_the_main_thread`) | aiohttp 3.14.5 |
 
-Pinned versions printed by the probes: **Litestar 2.25.0**, **Quart 0.23.1**, **Sanic
-25.12.1**, **aiohttp 3.14.5**, **Hypercorn 0.18.0**, **httpx 0.28.1**. A run against a
-different minor version is a different measurement; §10's tests fail loudly rather than
-silently change meaning.
+Paths are relative to the app: `::test_streaming_closes_after_the_body` in the Litestar row
+is `examples/apps/litestar/tests/test_litestar.py::test_streaming_closes_after_the_body`.
+Framework pins live in `examples/apps/{litestar,quart,sanic,aiohttp}/requirements.txt`:
+**Litestar 2.25.0** (with `httpx 0.28.1`), **Quart 0.23.1**, **Sanic 25.12.1** (with
+`sanic-testing 24.6.0`), **aiohttp 3.14.5**.
+
+Two rows deserve a caveat rather than a pin. **Hypercorn 0.18.0** appears in the authoring
+transcripts (QRT-1/QRT-2 over a real socket, Sanic's server listeners) and the examples do
+not install it, so the in-process cases are what `nox -s examples` re-runs; the socket-level
+observation stands on the authoring transcript alone. And **Werkzeug**, which QRT-5's
+`async with`-only client row depends on, is not pinned beside Quart — the version above is
+the measured one, and that gap is tracked as its own goal.
 
 ## 7. Error Catalog Impact
 
@@ -464,6 +499,14 @@ containment rule as PRD 03's teardown.
 | T11-14 | errors close exactly once | a handler raising `DIError` | one request | 500; exactly one close |
 | T11-15 | Sanic handlers that stream return `None` | `request.respond()` + `return None` | one request | no `will not be sent to client` error in the log |
 | T11-16 | the adapter modules import nothing when the framework is absent | a clean venv | import each adapter | `ImportError`/`ModuleNotFoundError` → SKIP, never a fake (D-62) |
+
+One client-level detail decides how T11-13 is written for Quart, and it belongs beside
+QRT-5's "no serving hook" row: `Quart.test_client()` supports `async with` but **not** sync
+`with`. The sync form raises `TypeError: 'QuartClient' object does not support the context
+manager protocol` before a single request is made, so a Quart case must be an `async def`
+test that `await`s inside `async with app.test_client()`. It also cannot lift
+`startup()`/`shutdown()` from the client at all — QRT-5 is why `§5.3` binds those to
+`before_serving`/`after_serving` instead.
 
 ### 10.2 Acceptance traceability
 

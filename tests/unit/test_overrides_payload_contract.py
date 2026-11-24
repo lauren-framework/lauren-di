@@ -164,9 +164,13 @@ class TestActivePlanContext:
         outer = OverridePlan()
         inner = OverridePlan()
 
+        def failing_build() -> None:
+            """Fail the way a real build does: from inside the ``with`` block."""
+            raise RuntimeError("build failed")
+
         with building_with(outer):
             with pytest.raises(RuntimeError), building_with(inner):
-                raise RuntimeError("build failed")
+                failing_build()
             assert active_override_plan() is outer
 
     def test_plan_is_restored_for_a_supplied_mapping(self) -> None:

@@ -50,7 +50,7 @@ python -m pytest examples/apps/click -q
 nox -s examples
 
 # install the host this app pins
-pip install -r examples/apps/click/requirements.txt
+pip install -c examples/apps/constraints.txt -r examples/apps/click/requirements.txt
 ```
 
 The test client is `click.testing.CliRunner`.

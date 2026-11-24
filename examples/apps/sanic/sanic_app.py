@@ -27,7 +27,6 @@ from itertools import count
 from typing import Annotated, Any
 from uuid import uuid4
 
-import sanic_di
 from _host import build_container
 from lauren_di import (
     DIContainer,
@@ -41,7 +40,15 @@ from lauren_di import (
 from sanic import Sanic, response
 from sanic.request import Request
 from sanic.response import HTTPResponse
-from sanic_di import SANIC_SCOPE_TOKEN, Conversation, asgi_conversation, current_scope
+from sanic_di import (
+    SANIC_SCOPE_TOKEN,
+    Conversation,
+    DIASGIApp,
+    asgi_conversation,
+    asgi_lifespan,
+    current_scope,
+    install,
+)
 
 _NAMES = count(1)
 
@@ -134,7 +141,7 @@ class Example:
     recorder: Recorder
     container: DIContainer
     app: Sanic
-    asgi: sanic_di.DIASGIApp
+    asgi: DIASGIApp
 
 
 def create_container(recorder: Recorder) -> DIContainer:
@@ -155,7 +162,7 @@ def create_container(recorder: Recorder) -> DIContainer:
 def build_app(container: DIContainer, *, name: str | None = None) -> Sanic:
     """Build the Sanic app around ``container``: routes plus the adapter's middleware."""
     app = Sanic(name or f"lauren_di_sanic_example_{next(_NAMES)}")
-    sanic_di.install(app, container)
+    install(app, container)
 
     @app.on_response
     async def record_response_middleware(request: Request, resp: HTTPResponse) -> HTTPResponse:
@@ -287,9 +294,7 @@ def create_app(*, name: str | None = None) -> Example:
     recorder = Recorder()
     container = create_container(recorder)
     app = build_app(container, name=name)
-    return Example(
-        recorder=recorder, container=container, app=app, asgi=sanic_di.DIASGIApp(app, container)
-    )
+    return Example(recorder=recorder, container=container, app=app, asgi=DIASGIApp(app, container))
 
 
 example = create_app()
@@ -308,7 +313,7 @@ asgi = example.asgi
 async def demo() -> list[Conversation]:
     """Exercise the app in-process through the ASGI seam and print the measurements."""
     calls: list[Conversation] = []
-    async with sanic_di.asgi_lifespan(asgi):
+    async with asgi_lifespan(asgi):
         for path in ("/health", "/hello", "/stream", "/echo", "/teardown-error"):
             call = await asgi_conversation(asgi, path, snapshot=lambda: list(asgi.events))
             calls.append(call)

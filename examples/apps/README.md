@@ -57,14 +57,34 @@ The shared, framework-free pieces live one directory up:
 | --- | --- |
 | [`_host.py`](_host.py) | the reference adapter — `build_container`, `HostUnit`, `SyncBridge`, `SCOPE_KEY` |
 | [`_testing.py`](_testing.py) | `require(distribution)` (skip when absent) and `load(app, module)` (import after the guard) |
+| [`_pins.py`](_pins.py) | the recorded dependency resolution: `--write` regenerates `constraints.txt`, `--verify` checks the venv against it |
+| [`constraints.txt`](constraints.txt) | every app's pins **and** the closure they resolve to, one version each, with the apps that reach it |
 | [`conftest.py`](conftest.py) | puts the repository root and this directory on `sys.path`, appended never inserted |
 | [`apps.json`](apps.json) | the manifest the tests and `nox -s examples` read |
+
+## Why the resolution is recorded
+
+Each app's `requirements.txt` names the host it demonstrates. That is not the
+whole of what a test measures: the framework's *transitive* dependencies decide
+the behaviour. The T14-08 failure is the case in point — Typer does not constrain
+Click, so an unpinned Click in the shared `examples` venv silently chose whether
+an injected parameter raised at build time or became a positional argument, and
+the test had recorded a `RuntimeError` that no installed version raises. A green
+test whose meaning floats on somebody else's pin is a test whose meaning is
+unknown.
+
+So [`constraints.txt`](constraints.txt) records the closure as measured, `nox -s
+examples` installs with `-c` it, `_pins.py --verify` fails the session if the venv
+drifted from it, and `tests/examples/test_apps_manifest.py` re-checks the same
+relation from a bare checkout. An app that needs a transitive *named* — Werkzeug
+for the close point, `multidict` for aiohttp's headers, `termcolor` for Fire's
+output — says so in its own `requirements.txt` with the reason.
 
 ## Running them
 
 ```bash
 # one app, once its host is installed
-pip install -r examples/apps/flask/requirements.txt
+pip install -c examples/apps/constraints.txt -r examples/apps/flask/requirements.txt
 python -m pytest examples/apps/flask -q
 
 # every app that can be installed here, installed and run in one venv

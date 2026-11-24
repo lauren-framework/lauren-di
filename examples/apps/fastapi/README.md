@@ -92,7 +92,7 @@ python examples/apps/fastapi/fastapi_app.py
 nox -s examples
 
 # install the host this app pins
-pip install -r examples/apps/fastapi/requirements.txt
+pip install -c examples/apps/constraints.txt -r examples/apps/fastapi/requirements.txt
 ```
 
 The test client is `fastapi.testclient.TestClient` (needs `httpx`).
