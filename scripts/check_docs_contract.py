@@ -25,6 +25,10 @@ standard library only, this checks:
    parses. A block whose info string carries ``run`` additionally executes, in
    file order, in one module namespace per file (later blocks may use names from
    earlier ones); top-level ``await`` is allowed and runs under ``asyncio.run``.
+   ``fragment``/``skip`` exempts a block from *execution*, not from *parsing*,
+   and every ``python`` block on a page named in ``MARKED_PAGES`` must carry one
+   of the three markers — the host pages, where a reader cannot otherwise tell a
+   copyable recipe from a partial snippet (PRD 14 row T14-13).
 4. **Coverage** — every name in ``lauren_di.__all__`` has a ``### <Name>``
    section in ``docs/reference.md``.
 5. **Freshness** — ``docs/reference.md`` is byte-identical to what
@@ -87,6 +91,16 @@ LINK_ESCAPES: tuple[str, ...] = ("#", "/")
 EXCLUDED_PREFIXES: tuple[str, ...] = ()
 PYTHON_LANGUAGES = frozenset({"python", "py", "python3"})
 MARKERS = frozenset({"run", "fragment", "skip"})
+#: Pages that document a third-party host. On these a reader -- human or coding
+#: agent -- cannot tell a copyable recipe from a deliberately partial block
+#: unless the block says which it is, so every python fence here must carry one
+#: of the three markers. The recipes import a framework the library does not
+#: depend on, which makes them ``fragment`` by construction; the one snippet per
+#: page that runs on a bare interpreter must be ``run`` or nothing exercises it.
+#: PRD 14 row T14-13 is the CLI half of this rule, and ``hosting.md`` already
+#: complied when the rule was added -- it is listed so a later edit cannot
+#: quietly drop a marker from the page that set the convention.
+MARKED_PAGES = frozenset({"docs/guides/cli.md", "docs/guides/hosting.md"})
 RUN_TIMEOUT_S = 20.0
 
 _FENCE_RE = re.compile(r"^(?P<indent>[ \t]*)(?P<fence>`{3,}|~{3,})(?P<info>.*)$")
@@ -439,8 +453,22 @@ def check_blocks(*, execute: bool) -> list[Violation]:
         for block in extract_blocks(text, relative):
             if block.language not in PYTHON_LANGUAGES:
                 continue
-            if {"fragment", "skip"} & block.markers:
-                continue
+            if not block.markers and relative in MARKED_PAGES:
+                violations.append(
+                    Violation(
+                        block.location,
+                        "marker",
+                        "every python block on this page must be marked "
+                        "`run`, `fragment` or `skip` -- a host page has no "
+                        "unmarked middle ground (PRD 14 T14-13)",
+                    )
+                )
+            # A marker decides whether a block *runs*, never whether it is valid
+            # Python. `fragment` means "partial, do not execute", and a fragment
+            # that no longer parses is a typo a reader will copy verbatim -- the
+            # PRD corpus already compiles its own fragment/skip fences for
+            # exactly this reason, and a second reading of one property is how
+            # the two gates start disagreeing.
             try:
                 code = compile(
                     block.source, block.location, "exec", flags=_COMPILE_FLAGS, dont_inherit=True

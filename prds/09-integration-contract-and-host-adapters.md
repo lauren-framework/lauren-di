@@ -4,7 +4,7 @@
 **Depends on:** PRDs 01–08
 **Resolves:** D-57 (no framework code ships), D-58 (explicit scope, no ambient ContextVar), D-59 (a sync host owns its bridge), D-60 (`startup()` before serving), D-61 (the host owns the scope lifetime), D-62 (SKIP is never PASS), D-63 (framework imports only in partial fences); introduces the adapter contract `IC-1`…`IC-12`
 **Related:** `prds/README.md` §3 (product boundary), §4 (decision register)
-**Probes:** `/tmp/compat/core_probe.py`, `core_probe2.py`, `bridge_probe.py`, `probe09.py`, `probe09b.py`, `probe09c.py` on Python 3.13.13; indexed in §6.5
+**Evidence:** `tests/integration/hosts/` (T09-01…T09-18, C-1…C-12), `examples/host_unit_of_work.py` and the library's own integration suite, run by `nox -s integration` and `nox -s examples`; §6.5 indexes every `M-nn` id to the artifact that carries it
 
 ---
 
@@ -59,15 +59,16 @@ instead.
 
 ### 1.3 Twenty-one measured gaps between the seams and a host
 
-Every number below was produced by the probe named in §6.5 on the artifact printed as the
-first line of its transcript (`lauren_di.__file__` under
-`/root/python_projects/lauren-all/lauren-di`). None is quoted from a framework's
-documentation.
+Every number below was measured during authoring against the artifact this checkout
+builds, with each throwaway script printing `lauren_di.__file__` first so an installed
+copy could not be mistaken for the working tree. The scripts themselves were never
+committed: §6.5 records, per claim, whether a shipped test now asserts it or whether it
+stands as a one-time observation. None of it is quoted from a framework's documentation.
 
 | # | Gap | Measurement | Consequence |
 |---|---|---|---|
 | M-1 | Lazy singleton construction is not serialised | eight threads race the first `resolve` of one `time.sleep(0.05)` singleton → **8 distinct instances**, the container's cache holds **1** | seven instances leak, never torn down; a threaded host must construct eagerly (M-2, D-60) |
-| M-2 | Eager construction removes the race | same probe after `await container.startup()` → **1 instance**, cache holds **1** | `startup()` before the host binds is the supported multithreaded contract |
+| M-2 | Eager construction removes the race | the same script after `await container.startup()` → **1 instance**, cache holds **1** | `startup()` before the host binds is the supported multithreaded contract |
 | M-3 | Concurrent resolution inside one scope can duplicate a request-scoped instance | `asyncio.gather(scope.resolve(T), scope.resolve(T))` where `T`'s factory awaits → `a is b` is **False** and the cache ends with **2** entries; without an `await` in construction → `a is b` is **True** | a handler that parallelises resolution must resolve first or use one scope per task |
 | M-4 | `asyncio.run` per unit is a tax and breaks loop affinity | 200 cached resolves × 5 runs → **0.24–0.33 ms/op** (mean ≈0.30) | a loop-bound singleton built on one temporary loop is unusable on the next (M-6) |
 | M-5 | One long-lived loop on a dedicated thread is cheaper and keeps affinity | 1000 calls × 5 runs → **0.18–0.33 ms/op** (0.18–0.22 idle, 0.32–0.33 with five processes competing; mean ≈0.25); 8 threads × 50 scoped resolves → no errors, one singleton id | the bridge is the sync-host default (D-59) |
@@ -113,11 +114,14 @@ a streaming response, a teardown hook that raises, and a second thread.
 
 ### 1.5 Evidence method
 
-All probes ran on Python 3.13.13 with `PYTHONPATH` pinned to this checkout, and each
-transcript starts by printing `lauren_di.__file__`. The pin matters for the same reason it
-mattered in PRD 08 §1.5: an installed `lauren-di` is a different artifact, and a probe run
-from a directory that is not on `sys.path` measures it in silence. Framework versions are
-recorded in §6.5 and in each page 10–14.
+The authoring measurements ran on Python 3.13.13 with `PYTHONPATH` pinned to this checkout,
+and each script printed `lauren_di.__file__` before anything else. The pin matters for the
+same reason it matters in PRD 08 §1.5: an installed `lauren-di` is a different artifact,
+and a script run from a directory that is not on `sys.path` measures it in silence. The
+shipped equivalent is `tests/integration/hosts/`, which imports `lauren_di` from the
+working tree by construction; the `E-nnn` probes under `prds/evidence/` keep the stricter
+form of the same rule (a pinned reference checkout, refused when dirty). Framework
+versions are recorded in §6.5 and in each page 10–14.
 
 This page contains no framework import: it is the contract, and it is deliberately
 neutral. The compatibility pages 10–14 are where framework nouns appear, and there D-63
@@ -256,8 +260,10 @@ Two obligations are easy to miss and are called out separately:
 | WebSocket | connection | on accept | on close | one connection, not one message |
 | Background task | task | at task start | at task end | must not borrow a request scope that may already be closed |
 
-The measured ASGI proof, from `probe09.py` (`starlette 1.10.0`, a three-chunk
-`StreamingResponse`):
+The measured ASGI proof (`starlette 1.10.0`, a three-chunk `StreamingResponse`; re-asserted
+for every installed adapter by
+`tests/integration/hosts/conformance.py::test_c7_closes_after_the_last_chunk`, which fails
+with “the scope closed before the last chunk was produced (M-18)”):
 
 ```text
 base: ['mw-enter', 'chunk-0', 'mw-got-response', 'mw-finally', 'chunk-1', 'chunk-2']
@@ -442,7 +448,8 @@ table is the whole rule; the numbers under it are what makes it non-negotiable.
 | drain | listener closed, last unit finishing | last `await scope.close()` | reported, never raised (IC-8) |
 | stop | lifespan shutdown / `atexit` / `finally` | `await shutdown()` | reported; exit code already decided |
 
-Measured, from `probe09.py`:
+Measured, and re-asserted by
+`tests/integration/hosts/test_reference_host.py::test_t09_09_shutdown_runs_once_and_both_tuples_are_empty`:
 
 | Observation | Result |
 |---|---|
@@ -473,7 +480,7 @@ holds a reference to them.
 
 `startup()` also enforces IC-6's singleton clause, which validation does not:
 
-| Step | Result (M-21, `probe09f.py`) |
+| Step | Result (M-21 — authoring-time, no shipped assertion) |
 |---|---|
 | register `Repo(request: Annotated[Any, Inject(REQUEST)])` as a `SINGLETON`, then `compile()` | accepted |
 | `await startup()` | `MissingProviderError: No provider for Token(REQUEST)` |
@@ -561,7 +568,8 @@ therefore has exactly three patterns, and all three end with "one container per 
 | ambient plan | `with building_with(plan): container = build_app()` | the helper predates overrides and must not learn about them |
 | per-test factory | a fixture that calls the helper with a plan, one container per test | a suite with many tests and one shared `conftest.py` |
 
-Measured, from `probe09d.py` (one line per claim):
+Measured, and re-asserted by
+`tests/integration/hosts/test_reference_host.py::test_t09_11_an_override_plan_changes_one_build_only`:
 
 | Observation | Result |
 |---|---|
@@ -728,7 +736,8 @@ It is deliberately small, and three details are load-bearing:
 - **`unit()` takes a mapping, not `**values`.** `**` forces string keys, so
   `unit(REQUEST=request)` would store the value under `"REQUEST"` and the `Token` key
   would never match — a silent `MissingProviderError` at resolve time. The measured
-  failure is in `probe09e.py`'s history and is the reason the signature is a mapping.
+  failure was hit while the reference adapter was being written, and it is the reason the
+  signature is a mapping.
 - **The adapter owns no scope.** `Unit` holds it and hands it to the caller; nothing
   looks a scope up by thread, task or global, which is D-58 in code.
 - **`__aexit__` returns `False`.** A teardown error must not replace the handler's own
@@ -787,7 +796,10 @@ package. Adding a name to make an adapter easier is a red test in two places.
 
 ### 6.4 Cost
 
-Per unit of work, measured on Python 3.13.13 (`probe09b.py`, `probe09c.py`, `probe09d.py`):
+Per unit of work, measured during authoring on Python 3.13.13 — these are timings, so **no
+shipped test reproduces them**; the ordering claims beside them are what
+`tests/integration/hosts/test_reference_host.py::test_t09_10_the_sync_bridge_serves_many_resolves_on_one_loop`
+asserts:
 
 | Operation | Cost | Note |
 |---|---|---|
@@ -802,7 +814,7 @@ constructed**, dominated by introspection rather than by the scope or the cache.
 that constructs many short-lived services per request should measure its own graph before
 blaming the container; a host that constructs one service per request will not see it.
 
-These bands are wall-clock figures from one box, so re-running `bridge_probe.py` on a second
+These bands are wall-clock figures from one box, so re-running the same timing script on a second
 host gave **0.17–0.26 ms/op** over ten runs — the floor and ceiling move with load, which is
 why the durable claims are the *ordering* (one bridge call costs less than one `asyncio.run`,
 0.32 ms in the same session) and the preserved loop affinity, not the absolute microsecond
@@ -810,22 +822,52 @@ count. Re-measure on the host you are deploying to before quoting a number to a 
 
 ### 6.5 Evidence index
 
-Every claim above traces to one of these files, run on Python 3.13.13 with `PYTHONPATH`
-pinned to this checkout. The first line of each transcript is `lauren_di.__file__`.
+The authoring measurements came from nine throwaway scripts (a core probe, a second core
+probe, a bridge probe and six scenario scripts) that were never committed, so the previous
+version of this table cited files no reader could open. Two artifacts replace them: the
+reference host under `examples/host_unit_of_work.py`, whose behaviour
+`tests/integration/hosts/test_reference_host.py` asserts as T09-01…T09-18, and the
+conformance suite in `tests/integration/hosts/test_conformance.py`, which drives C-1…C-12
+over every installed adapter. Both run in CI (`nox -s integration`, `nox -s examples`).
 
-| Probe | What it measures | Claim ids |
+**Claim ids that a shipped test asserts** — the docstring names the id (`M-n`) or, for a row
+that maps onto the conformance suite, the `C-n` case it names, so the link is not a claim about
+the test but part of it:
+
+| Id | What it observes | Asserted by |
 |---|---|---|
-| `core_probe.py` | lazy compile, scope cache, values, single-use scope, cross-loop shutdown, teardown order, strict mode | M-8, M-11, M-12, M-13, M-14, M-15, M-19 |
-| `core_probe2.py` | gather duplication, eager construction, `asyncio.run` cost, loop affinity, teardown errors, handler exception | M-1, M-2, M-3, M-4, M-6, M-9, M-10 |
-| `bridge_probe.py` | bridge cost, 8-thread scoped resolves, blocking constructor | M-5, M-7 |
-| `probe09.py` | startup/shutdown idempotency and restart, half-built cache, lazy compile, ASGI close point (`starlette 1.10.0`) | M-16, M-18, M-20 |
-| `probe09b.py` | scope cost, `container.resolve` inside a scope, non-awaiting gather | M-17, M-19 |
-| `probe09c.py` | profile of open+resolve+close | M-17 |
-| `probe09d.py` | the three host-test override patterns, isolation, scope inheritance, missing target | §5.9 rows |
-| `probe09e.py` | the reference adapter of §5.11, executed verbatim | §5.11, C-3, C-5, C-7, C-8 |
-| `probe09f.py` | singleton → value token: compile accepts, `startup()` fails, cache holds 1 | M-21 |
+| M-3 | a `gather` on one scope constructs the dependency twice | `test_reference_host.py::test_t09_13_concurrent_resolves_in_one_scope_duplicate` |
+| M-8 | teardown follows the dependency graph, `B` before `A` | `::test_t09_15_teardown_order_follows_the_dependency_graph` |
+| M-12, M-13 | a supplied value resolves; an unsupplied one is an error | `::test_t09_16_a_supplied_value_resolves_and_an_unsupplied_one_does_not` |
+| M-14 | a closed scope refuses further resolution | `::test_t09_17_a_closed_scope_refuses_further_resolution` |
+| M-15 | a host-owned object is never closed by the container | `::test_t09_06_a_host_owned_value_is_never_closed_by_the_container` |
+| M-16 | a failed `@post_construct` leaves `startup()` raised and the cache holding one | `::test_t09_14_a_failing_post_construct_leaves_startup_raised` |
+| M-18 | the scope closes after the last body chunk | `test_conformance.py::test_c7_closes_after_the_last_chunk` — docstring `C-7` (every installed adapter) |
 
-The framework versions named in this page are the ones the probes printed:
+**Claim ids the shipped code cites without a dedicated test** — these are baked into the
+reference host as comments explaining *why* a line exists, and the invariant they justify is
+asserted by the conformance case named:
+
+| Id | What it observes | Where it lives now |
+|---|---|---|
+| M-11 | a lazy first resolve caches an instance and never tears it down | `examples/apps/_host.py` (the `startup()` comment); C-1 asserts the eager path instead |
+| M-9 | dropping a teardown error is the measured bug | `examples/apps/_host.py`; C-8 asserts the error is reported |
+| M-4, M-5, M-6 | a loop that closed before the next unit breaks a loop-bound singleton | `examples/apps/_host.py` and `conformance.py`; C-10 asserts one loop or loop-agnostic providers |
+
+**Claim ids with no shipped assertion at all** — authoring-time observations, listed so a
+reader can tell "we measured this" from "we test this":
+
+| Id | What it observes | Why no test |
+|---|---|---|
+| M-1, M-2 | eight threads racing the first lazy resolve build eight instances; eager construction removes the race | the library's answer is D-60 (`startup()` before binding), and the host tests assert the eager path rather than the race |
+| M-7 | eight threads resolving through scopes serialise on one bridge, and a blocking constructor blocks them | a timing/latency observation; §6.4's numbers carry it |
+| M-10 | a handler exception still closes the unit once | asserted at the host level by C-8 and T09-08, but no test names M-10 |
+| M-17 | the open+resolve+close cost profile (introspection dominates) | timings — see §6.4's caveat |
+| M-19 | `container.resolve` inside a scope bypasses the scope's cache | close to M-3/T09-13; the exact "inside a scope" variant is not asserted |
+| M-20 | `startup()`/`shutdown()` are idempotent, and a restart re-runs `@post_construct` | T09-09 asserts `shutdown()` twice; the restart half is unasserted |
+| M-21 | registering a `REQUEST`-annotated provider as `SINGLETON` passes `compile()` and fails `startup()` with the cache holding one | no test; `compile()` cannot see the request token |
+
+The framework versions named in this page are the ones the authoring scripts printed:
 `starlette 1.10.0` for M-18 and nothing else — every other number is the container alone.
 
 ## 7. Error Catalog Impact
@@ -892,9 +934,10 @@ Two conventions, both mechanical:
 1. **Every framework sample is `fragment` or `skip`.** The corpus test executes `run`
    fences in an environment whose dependency list is empty; a framework sample marked
    `run` is a promise the corpus cannot keep (D-63).
-2. **Every claim names its artifact.** A version, a probe file or the words "documented
-   API, not measured here". There is no third category, and a number without one is a
-   documentation bug.
+2. **Every claim names its artifact.** A version plus the test that asserts it, a version
+   plus the words "authoring-time observation, no shipped assertion", or the words
+   "documented API, not measured here". There is no fourth category, and a number without
+   one is a documentation bug.
 
 ## 10. Test Plan
 

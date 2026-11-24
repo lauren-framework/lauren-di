@@ -140,7 +140,7 @@ reason each line is where it is.
 ### 5.2 Lifespan maps onto `startup()`/`shutdown()` exactly
 
 Starlette's lifespan is the one hook that runs before the server accepts a connection, so
-it is where D-60's eager construction belongs. Measured (`probe_01_lifespan.py`):
+it is where D-60's eager construction belongs. Measured (A-1):
 
 | Observation | Result |
 |---|---|
@@ -163,7 +163,7 @@ created by the framework, shared by everything downstream, and destroyed with th
 That is exactly the hand-over point the contract needs, and it is why D-58 can be honoured
 without a `ContextVar`.
 
-Measured (`probe_03_state.py`):
+Measured (A-3):
 
 | Observation | Result |
 |---|---|
@@ -197,7 +197,7 @@ async def read_order(order_id: str, request: Request):
 ### 5.4 The close point: three middleware styles, three orders
 
 This is the centrepiece of the page. The same app, the same three-chunk
-`StreamingResponse`, three middleware styles, one scope each (`probe_02_middleware_close.py`):
+`StreamingResponse`, three middleware styles, one scope each (A-2):
 
 | Style | Measured order | Scope closed |
 |---|---|---|
@@ -225,7 +225,7 @@ Three rules follow, and the adapter in §5.1 is the first one:
 
 FastAPI's `Depends` with `yield` runs its teardown after the response body **and** after the
 background task. Measured with a three-chunk stream plus a `BackgroundTask`
-(`probe_04_fastapi.py`):
+(A-6):
 
 ```text
 YIELD_ORDER ['yielddep.enter', 'chunk.0', 'chunk.1', 'chunk.2', 'gen.done',
@@ -258,7 +258,7 @@ scopes or a double close, and the measured orders show exactly how far apart the
 ### 5.6 WebSockets: one scope per connection
 
 A WebSocket is a long-lived "unit" whose close point is the connection, not a message.
-Measured (`probe_05_websocket.py`):
+Measured (A-7):
 
 | Observation | Result |
 |---|---|
@@ -276,7 +276,7 @@ what the connection needs once, not in every message loop.
 
 ### 5.7 Exceptions: three paths, one close
 
-Measured with a pure-ASGI scope owner (`probe_06_exceptions.py`):
+Measured with a pure-ASGI scope owner (A-8):
 
 | Path | Measured order | Status |
 |---|---|---|
@@ -301,7 +301,7 @@ it into a 500 — the correct outcome for a wiring bug, and the reason PRD 09 §
 ### 5.8 FastAPI: `Depends` beside `Inject`, and two override systems
 
 `Depends` and `Inject` are different injection systems and must stay separate. The
-measured evidence is blunt (`probe_04_fastapi.py`):
+measured evidence is blunt (A-5):
 
 | Attempt | Result |
 |---|---|
@@ -327,7 +327,7 @@ So:
 
 ### 5.9 Testing: `ASGITransport` versus `TestClient`
 
-Measured (`probe_07_httpx.py`):
+Measured (A-9):
 
 | Harness | Lifespan | `startup()` | Observation |
 |---|---|---|---|
@@ -358,7 +358,7 @@ It is the container telling the truth about a test that skipped the lifecycle (C
 ### 5.10 uvicorn: one container per worker process
 
 `--workers N` forks N processes; each imports the app and runs its own lifespan. Measured
-with the app in §5.1 (`probe_08_workers.py`):
+with the app in §5.1 (A-10, A-11):
 
 | Configuration | `startup` pids | `shutdown` pids | `post_construct` / `pre_destruct` | errors |
 |---|---|---|---|---|
@@ -445,25 +445,33 @@ two `await`s and a dict write. Any design that adds more has misunderstood the c
 
 ### 6.5 Evidence index
 
-Every claim above is one transcript, produced on CPython 3.13.13 with
-`PYTHONPATH` pinned to this checkout and the versions in the header. The first line of
-each transcript is `lauren_di.__file__`.
+Every claim above is asserted by a test in this repository. The measurements were first
+taken during authoring, on CPython 3.13.13, with throwaway scripts that were never
+committed — so a citation of the form "see probe_01_lifespan.py" named a file no reader
+could open. The artifact that keeps each row true now is the example app under
+`examples/apps/`, which `nox -s examples` (and the `examples` CI job) runs on every push.
+Rows whose only witness was an authoring transcript say so instead of pointing at one.
 
-| Probe | Versions | Claims |
+| Claim | Asserted by | Versions measured |
 |---|---|---|
-| `probe_01_lifespan.py` | starlette 1.10.0, httpx 0.28.1 | A-1 (lifespan order, idempotency, restart, failed startup) |
-| `probe_02_middleware_close.py` | starlette 1.10.0 | A-2 (close point for three middleware styles) |
-| `probe_03_state.py` | starlette 1.10.0 | A-3 (`scope["state"]` sharing and isolation) |
-| `probe_04_fastapi.py` | fastapi 0.165.0, starlette 1.10.0 | A-4 (`Depends` + `dependency_overrides`), A-5 (`Inject` is not `Depends`), A-6 (yield-dependency and background order) |
-| `probe_05_websocket.py` | starlette 1.10.0 | A-7 (one scope per connection) |
-| `probe_06_exceptions.py` | starlette 1.10.0 | A-8 (normal, handled and unhandled paths close once) |
-| `probe_07_httpx.py` | starlette 1.10.0, httpx 0.28.1 | A-9 (lifespan in `ASGITransport` and `TestClient`) |
-| `probe_08_workers.py` | starlette 1.10.0, uvicorn 0.54.0 | A-10 (one container per worker; wire-level close point), A-11 (keep-alive serves one worker) |
+| A-1 (lifespan order, idempotency, restart, failed startup) | `examples/apps/starlette/tests/test_starlette.py::test_lifespan_starts_the_container_before_the_first_request`, `::test_lifespan_shutdown_reports_its_tuple`, `::test_failed_startup_aborts_the_app`; the same three in `examples/apps/fastapi/tests/test_fastapi.py` | starlette 1.10.0, httpx 0.28.1 |
+| A-2 (close point for three middleware styles) | `examples/apps/starlette/tests/test_starlette.py::test_streaming_teardown_runs_after_the_last_chunk` (pure ASGI) and `::test_base_http_middleware_closes_before_the_last_chunk` (the negative control); `examples/apps/fastapi/tests/test_fastapi.py::test_scope_owner_is_pure_asgi` | starlette 1.10.0 |
+| A-3 (`scope["state"]` sharing and isolation) | `examples/apps/starlette/tests/test_starlette.py::test_scope_is_in_the_request_state`, `::test_one_scope_per_request` | starlette 1.10.0 |
+| A-4 (`Depends` + `dependency_overrides`) | `examples/apps/fastapi/tests/test_fastapi.py::test_dependency_overrides_is_container_free` | fastapi 0.165.0, starlette 1.10.0 |
+| A-5 (`Inject` is not `Depends`) | `examples/apps/fastapi/tests/test_fastapi.py::test_depends_and_inject_coexist` | fastapi 0.165.0, starlette 1.10.0 |
+| A-6 (yield-dependency and background order) | `examples/apps/starlette/tests/test_starlette.py::test_background_task_sees_an_open_scope`; `examples/apps/fastapi/tests/test_fastapi.py::test_background_task_sees_an_open_scope` | fastapi 0.165.0, starlette 1.10.0 |
+| A-7 (one scope per connection) | `examples/apps/starlette/tests/test_starlette.py::test_websocket_keeps_one_scope_per_connection`, `::test_a_second_connection_gets_a_new_scope` | starlette 1.10.0 |
+| A-8 (normal, handled and unhandled paths close once) | `examples/apps/starlette/tests/test_starlette.py::test_handled_exception_closes_once`, `::test_unhandled_exception_closes_once`, `::test_teardown_is_the_last_event_of_a_request` | starlette 1.10.0 |
+| A-9 (lifespan in `ASGITransport` and `TestClient`) | `examples/apps/starlette/tests/test_starlette.py::test_asgi_transport_does_not_run_the_lifespan`; `examples/apps/fastapi/tests/test_fastapi.py::test_asgi_transport_does_not_run_the_lifespan` | starlette 1.10.0, httpx 0.28.1 |
+| A-10 (one container per worker; wire-level close point) | `examples/apps/starlette/tests/test_starlette.py::test_one_container_per_worker` (two spawned processes, two pids, two startups) | starlette 1.10.0 |
+| A-11 (a keep-alive client sees one worker) | **no shipped assertion** — an eight-request burst landed on one pid during authoring, and §10 does not test it; treat it as an operational note, not a measured invariant | starlette 1.10.0, uvicorn 0.54.0 |
 
-Pinned versions are the ones printed by the probes: **Starlette 1.10.0**, **FastAPI
-0.165.0**, **uvicorn 0.54.0**, **httpx 0.28.1**. A run against a different minor version is
-a different measurement; §10's tests are written to fail loudly rather than silently change
-meaning.
+Pinned versions are the ones the examples install: **Starlette 1.10.0**, **FastAPI
+0.165.0**, **httpx 0.28.1** (`examples/apps/starlette/requirements.txt`,
+`examples/apps/fastapi/requirements.txt`). `uvicorn 0.54.0` appears only in the A-11 row,
+which no test covers. A run against a different minor version is a different measurement;
+§10's tests fail loudly rather than silently change meaning, and `nox -s examples`
+installs exactly the pins above.
 
 ## 7. Error Catalog Impact
 

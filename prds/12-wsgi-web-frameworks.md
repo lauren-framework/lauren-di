@@ -407,18 +407,29 @@ crossing for `close()` plus one per `resolve()` — each crossing **0.18–0.22 
 
 ### 6.5 Evidence index
 
-One transcript, `probe_12_wsgi.py`, produced on CPython 3.13.13 with `PYTHONPATH` pinned
-to this checkout. All four frameworks run inside it, one after another, through a real
-threaded server (Werkzeug 3.1.9) on ports 8141–8144.
+Every claim above is asserted by a test in `examples/apps/`, which `nox -s examples` runs on
+every push. The authoring transcript was a throwaway script — one process, four frameworks,
+one after another, through a real threaded server — that was never committed, so citing it
+by filename named a file no reader could open. The rows below name the test that keeps each
+`FLK`/`FLC`/`PYR`/`BTL` id true; where a row has no test it says so.
 
-| Probe | Versions | Claims |
+| Framework | Claims and the tests that assert them | Versions measured |
 |---|---|---|
-| `probe_12_wsgi.py` | flask 3.1.3, falcon 4.4.0, pyramid 2.1, bottle 0.13.4, werkzeug 3.1.9 | FLK-1…FLK-5, FLC-1…FLC-5, PYR-1…PYR-5, BTL-1…BTL-5 |
+| Flask | FLK-1 (`tests/test_flask.py::test_a_real_server_serves_the_handler_off_the_calling_thread`), FLK-2 (`::test_flask_teardown_request_fires_before_the_body_is_streamed`), FLK-3 (`::test_three_chunks_are_served_with_the_scope_open_then_closed`), FLK-4 (`::test_the_scope_is_reachable_from_the_host_store`), FLK-5 (`::test_startup_runs_once_before_the_first_request`) | flask 3.1.3, werkzeug 3.1.9 |
+| Falcon | FLC-1 (`::test_a_real_server_serves_the_responder_off_the_calling_thread`), FLC-2 (`::test_falcon_process_response_fires_before_the_body_is_streamed`), FLC-3 (`::test_three_chunks_are_served_with_the_scope_open_then_closed`), FLC-4 (`::test_the_scope_is_reachable_from_the_host_store`), FLC-5 (`::test_startup_runs_once_before_the_first_request`) | falcon 4.4.0 |
+| Pyramid | PYR-1 (`::test_a_real_server_serves_the_view_off_the_calling_thread`), PYR-2 (`::test_new_response_is_not_the_owner`), PYR-3 (`::test_teardown_follows_the_last_chunk`), PYR-4 (`::test_the_scope_is_reachable_through_the_environ`), PYR-5 (`::test_startup_precedes_the_first_request`) | pyramid 2.1, webtest 3.0.7 |
+| Bottle | BTL-1 (`::test_a_real_server_serves_the_route_off_the_calling_thread`), BTL-2 (`::test_after_request_is_not_the_owner`), BTL-3 (`::test_teardown_follows_the_last_chunk`), BTL-4 (`::test_the_scope_is_reachable_through_the_environ`), BTL-5 (`::test_startup_precedes_the_first_request`) | bottle 0.13.4 |
 
-Pinned versions printed by the probe: **Flask 3.1.3**, **Falcon 4.4.0**, **Pyramid 2.1**,
-**Bottle 0.13.4**, **Werkzeug 3.1.9**, **httpx 0.28.1**. A run against a different minor
-version is a different measurement; §10's tests fail loudly rather than silently change
-meaning.
+Every path in the table is relative to its app — `::test_a_real_server_serves_the_handler_off_the_calling_thread`
+means `examples/apps/flask/tests/test_flask.py::test_a_real_server_serves_the_handler_off_the_calling_thread`.
+The framework pins live in `examples/apps/{flask,falcon,pyramid,bottle}/requirements.txt`:
+**Flask 3.1.3**, **Falcon 4.4.0**, **Pyramid 2.1** (with `webtest 3.0.7`), **Bottle 0.13.4**.
+
+One pin is missing and the omission is load-bearing: `werkzeug` is the object whose
+`close()` §5.3 wraps and T12-05/T12-10 measure, but only Flask is pinned, so the Werkzeug
+that runs is whatever the resolver chose (3.1.9 in the authoring transcript). That gap is
+tracked as its own goal; until it is closed, the Werkzeug version beside the Flask row is
+the *measured* one, not a `nox -s examples` guarantee.
 
 ## 7. Error Catalog Impact
 

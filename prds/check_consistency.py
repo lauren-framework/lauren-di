@@ -1241,10 +1241,124 @@ def check_registers() -> None:
     )
 
 
+#: A citation of an *evidence artifact*: a backticked token that names a probe
+#: script (``probe_anything.py``) or a recorded transcript (``out_7.txt``).
+#: Both are file paths a reader is expected to be able to open, which is the
+#: whole reason they are checkable: pages 10-14 used to cite eighteen probes and
+#: eight transcripts that lived in ``/tmp`` during authoring and were never
+#: committed, so a "measured on CPython 3.13.13" claim pointed at nothing. The
+#: rule now is that a cited probe must be one ``prds/evidence/run_all.py``
+#: executes (and therefore records a transcript for), and a cited transcript must
+#: be a file under ``prds/evidence/output/``. The alternative — citing no file at
+#: all — is what the compatibility pages do instead, and it is allowed: this
+#: check only fails a citation that names a file the repository cannot show.
+CITED_PROBE = re.compile(r"`([^`\s]*probe[^`\s]*\.py)`")
+CITED_TRANSCRIPT = re.compile(r"`([^`\s]*out_?\d+[^`\s]*\.txt)`")
+EVIDENCE_RUNNER = ROOT / "evidence" / "run_all.py"
+EVIDENCE_OUTPUT = ROOT / "evidence" / "output"
+#: The published documentation, scanned as well as the PRDs: ``hosting.md`` used
+#: to repeat PRD 10's dead ``probe_02_middleware_close.py`` citation, and a rule
+#: that only covered ``prds/`` would have left that copy in place.
+DOC_PAGES = ROOT.parent / "docs"
+
+
+def _evidence_runner() -> types.ModuleType:
+    """Import ``prds/evidence/run_all.py`` for its probe inventory.
+
+    The runner owns the definition of "executed probe" (``probes()``: every
+    ``.py`` under ``prds/evidence/prd*/`` except ``__init__``), so the citation
+    rule reads that inventory instead of re-deriving it — a second glob here
+    would be a second answer to the same question, and the two would drift.
+    """
+    spec = importlib.util.spec_from_file_location("_lauren_di_evidence_run_all", EVIDENCE_RUNNER)
+    if spec is None or spec.loader is None:  # pragma: no cover - packaging accident
+        raise RuntimeError(f"cannot import the evidence runner from {EVIDENCE_RUNNER}")
+    module = importlib.util.module_from_spec(spec)
+    sys.modules[spec.name] = module
+    spec.loader.exec_module(module)
+    return module
+
+
+def check_citations() -> None:
+    """Every cited probe/transcript must be a file the repository actually has.
+
+    A PRD that says "measured (`probe_01_lifespan.py`)" is making a reproducible
+    claim: run the file, get the transcript. Pages 10-14 made that claim about
+    scripts that only ever existed in ``/tmp``, which is worse than no citation —
+    it *looks* checkable. The two carriers of evidence this corpus does have are
+    the ``E-nnn`` probes under ``prds/evidence/`` (audited by
+    ``run_all.py --check``) and the executed examples under ``examples/apps/``;
+    a page cites one of those by path, or it cites its own claim id (``A-2``,
+    ``FLK-3``, ``H-21``, ``DJ-6``) and lets its §6.5 index say which test asserts
+    it.
+    """
+    runner = _evidence_runner()
+    #: Keyed by basename *and* by relative path: ``prds/evidence`` holds 23
+    #: probes but only 19 distinct basenames (``prd07/p1.py`` and ``prd08/p1.py``
+    #: are both ``p1.py``), so a basename-only lookup would answer two different
+    #: questions with one name. A citation that is ambiguous is a failure that
+    #: says how to write it, not a pass.
+    by_name: dict[str, list[str]] = {}
+    for probe in runner.probes():
+        relative = probe.relative_to(runner.EVIDENCE).as_posix()
+        by_name.setdefault(probe.name, []).append(relative)
+    transcripts: dict[str, list[str]] = {}
+    for path in EVIDENCE_OUTPUT.rglob("*.out"):
+        transcripts.setdefault(path.name, []).append(
+            path.relative_to(runner.EVIDENCE).as_posix()
+        )
+    pages = list(PRDS) + sorted(DOC_PAGES.rglob("*.md"))
+    probe_citations = 0
+    resolved = 0
+
+    def resolve(cited: str, index: dict[str, list[str]], kind: str, where: str) -> bool:
+        #: A citation may name the file by path (``prd08/p1.py``) or by bare
+        #: basename. The path form is tried first and wins, which is why the
+        #: ambiguity message below can honestly tell a reader to write one.
+        text = cited.lstrip("/")
+        every = {relative for relatives in index.values() for relative in relatives}
+        if any(text == relative or text.endswith("/" + relative) for relative in every):
+            return True
+        candidates = index.get(Path(cited).name, [])
+        if len(candidates) == 1:
+            return True
+        if not candidates:
+            detail = (
+                f"no probe of that name is under prds/evidence/prd*/, so run_all.py "
+                f"never runs it and no transcript exists"
+                if kind == "probe"
+                else "prds/evidence/output/ has no such file"
+            )
+            fail("citations", f"{where}: `{cited}` is cited as {kind} evidence, but {detail}")
+        else:
+            fail(
+                "citations",
+                f"{where}: `{cited}` is ambiguous — {len(candidates)} files share that "
+                f"basename ({', '.join(sorted(candidates))}); cite it as one of those paths",
+            )
+        return False
+
+    for page in pages:
+        for number, line in enumerate(page.read_text().splitlines(), start=1):
+            where = f"{page.name}:{number}"
+            for cited in CITED_PROBE.findall(line):
+                probe_citations += 1
+                resolved += resolve(cited, by_name, "probe", where)
+            for cited in CITED_TRANSCRIPT.findall(line):
+                resolve(cited, transcripts, "a recorded transcript", where)
+    notes.append(
+        f"citations: {len(pages)} page(s) scanned; {resolved} of {probe_citations} probe "
+        f"citation(s) resolve to a script run_all.py executes "
+        f"({sum(len(v) for v in by_name.values())} probes) and "
+        f"{sum(len(v) for v in transcripts.values())} recorded transcript(s) exist"
+    )
+
+
 def main() -> int:
     check_index()
     check_template()
     check_links()
+    check_citations()
     check_cross_refs()
     check_decisions()
     check_symbols()

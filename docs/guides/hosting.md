@@ -210,7 +210,9 @@ streaming response and for every background task that outlives the response.
 | WebSocket | connection | on accept | on close | one connection, not one message |
 | background task | task | at task start | at task end | must not borrow a request scope that may already be closed |
 
-Measured on a three-chunk `StreamingResponse` (PRD 10 §5.4, `probe_02_middleware_close.py`):
+Observed on a three-chunk `StreamingResponse` during authoring (PRD 10 §5.4); the shipped
+assertions are `examples/apps/starlette/tests/test_starlette.py::test_streaming_teardown_runs_after_the_last_chunk`
+and `::test_base_http_middleware_closes_before_the_last_chunk`:
 
 ```text
 pure: ['pure-enter', 'chunk-0', 'chunk-1', 'chunk-2', 'pure-finally']

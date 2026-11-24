@@ -3,10 +3,12 @@
 **Status:** Draft — 2026-11-24
 **Depends on:** PRDs 01–09
 **Related:** `prds/README.md` §3 (product boundary), §4 (decision register)
-**Probes:** `/tmp/compat/14/probe_*.py` on Python 3.13.13; versions in §6.5
+**Evidence:** `examples/apps/{argparse,click,typer,cyclopts,fire}/tests/`, run by `nox -s examples`; §6.5 indexes every claim id to the test that asserts it
 
-Claim ids `H-1 … H-25` are measured; each is indexed to a probe file and a framework version in
-§6.5. Anything not in that index is labelled "documented API, not measured here".
+Claim ids `H-1 … H-27` are measured; §6.5 indexes each one to the test that asserts it, or —
+where no shipped test re-runs the observation — says so and marks it authoring-time-only,
+with the framework version either way. Anything not in that index is labelled "documented
+API, not measured here".
 
 ---
 
@@ -514,16 +516,25 @@ mapping of that contract.
 
 ### 6.4 Cost
 
-Measured on Python 3.13.13, 50 iterations, working-tree `lauren-di` `[H-24]`. Two probes measured
-two container shapes, and the difference matters more than the absolute numbers:
+Measured during authoring on Python 3.13.13, 50 iterations, working-tree `lauren-di` `[H-24]`.
+Two throwaway timing scripts measured two container shapes, and the difference matters more
+than the absolute numbers — but note the honesty caveat under the table, because these are
+the one set of figures on this page that no shipped artifact reproduces:
 
 | Shape | `asyncio.run(noop())` | fresh container | one container reused |
 |---|---|---|---|
-| two providers, clean teardown (`probe_07`) | 190–194 µs | 1326–1421 µs | 655–659 µs |
-| three providers, a `pre_destruct` that raises (`probe_05`) | 180–220 µs | 2613–2929 µs | 1459–1496 µs |
+| two providers, clean teardown | 190–194 µs | 1326–1421 µs | 655–659 µs |
+| three providers, a `pre_destruct` that raises | 180–220 µs | 2613–2929 µs | 1459–1496 µs |
 
 Ranges are across re-runs on the same machine; the 3× spread between the two shapes is not
 noise — the third provider and the failing-teardown path double the cost.
+
+**These microsecond figures are authoring-time only.** The scripts that produced them were
+never committed, no test asserts a timing, and this repository has no timing gate — so treat
+the shape as the durable claim (a container costs one to three milliseconds, and most of it
+is singleton construction) and the numbers as a snapshot of one machine. `nox -s examples`
+re-runs the *behaviour* these figures were taken alongside (T14-03's
+`started, built, closed, stopped` twice per process), not the microseconds.
 
 `startup()` constructs singletons eagerly `[H-22]`, so the fresh-container cost scales with the
 number of singleton providers, not with the number resolved. A CLI that runs for milliseconds
@@ -532,20 +543,37 @@ should build the container once per process and accept `A-12`'s constraint inste
 
 ### 6.5 Evidence index
 
-| Probe file | Versions measured | Claim ids |
-|---|---|---|
-| `/tmp/compat/14/probe_01_host_exit.py` | click 8.5.1, Typer 0.29.2, cyclopts 5.5.2, fire 0.7.1 | H-5, H-7, H-8, H-9, H-10, H-13, H-14, H-16, H-27 |
-| `/tmp/compat/14/probe_02_typer_async.py` | Typer 0.29.2 | H-10 |
-| `/tmp/compat/14/probe_03_lifecycle.py` | working-tree `lauren-di` | superseded — does not run as inherited (`MissingProviderError: Clock is not marked @injectable`); its two measurements were re-taken in probe_05 and probe_07 |
-| `/tmp/compat/14/probe_04_cli_param_namespace.py` | Typer 0.29.2, cyclopts 5.5.2, click 8.5.1 | H-11, H-15, H-12 |
-| `/tmp/compat/14/probe_05_lifecycle_exit.py` | working-tree `lauren-di` | H-21, H-23, H-24, H-25 |
-| `/tmp/compat/14/probe_06_signals.py` | click 8.5.1, CPython 3.13.13 | H-17, H-18, H-19 |
-| `/tmp/compat/14/probe_07_cost_overrides.py` | working-tree `lauren-di` | H-20, H-21, H-22, H-24, H-25 |
-| `/tmp/compat/14/probe_08_click_typer_storage.py` | click 8.5.1, Typer 0.29.2 | H-6, H-7, H-8, H-12, H-26 |
-| `/tmp/compat/14/probe_09_argparse.py` | argparse, CPython 3.13.13 | H-1, H-2, H-3, H-4 |
+The authoring measurements came from nine throwaway scripts under `/tmp/compat/14/` that were
+never committed, so the previous version of this table cited files no reader could open. What
+the repository has instead is an executed example per framework, driven by `nox -s examples`,
+and this table indexes each claim id to it.
 
-Framework versions: argparse from CPython 3.13.13, click 8.5.1, Typer 0.29.2, cyclopts 5.5.2,
-fire 0.7.1.
+| Framework | Claim ids the shipped tests assert | Versions measured |
+|---|---|---|
+| argparse | H-2 (`tests/test_argparse.py::test_missing_command_exits_2_and_starts_no_container`), H-4 (`::test_ctrl_c_closes_the_scope_exactly_once` — the `finally` half; the example exits 130 where the bare interpreter gave -2), H-20 (`::test_request_scoped_token_is_not_resolvable_on_the_container`), H-22 / H-23 (`::test_startup_runs_before_the_body_and_shutdown_after`, `::test_shutdown_failure_exits_70_and_reports_on_stderr`) | argparse, CPython 3.13.13 |
+| click | H-6 (`tests/test_click.py::test_real_process_exits_1_when_the_body_raises`), H-12 / H-25 (`::test_override_plan_replaces_the_mailer_under_the_runner`), H-17 (`::test_ctrl_c_closes_the_scope_exactly_once`), H-19 (`::test_sigterm_closes_the_scope_before_the_process_exits`), H-22 / H-23 (`::test_startup_runs_before_the_body_and_shutdown_after`, `::test_shutdown_failure_exits_70_and_reports_on_stderr`) | click 8.5.1 |
+| Typer | H-10 (`tests/test_typer.py::test_async_command_never_runs_the_body`), H-11 (`::test_annotated_injection_is_rejected_before_the_body`), H-26 (`::test_one_command_app_runs_the_body_on_empty_argv`), H-22 / H-23 (`::test_startup_runs_before_the_body_and_shutdown_after`, `::test_shutdown_failure_exits_70_and_reports_on_stderr`) | typer 0.29.2, click 8.5.1 |
+| cyclopts | H-14 (`tests/test_cyclopts.py::test_async_command_exit_code_comes_from_its_return_value`), H-15 (`::test_annotated_injection_is_a_coercion_error_before_the_body`), H-22 / H-23 (`::test_startup_runs_before_the_body_and_shutdown_after`, `::test_shutdown_failure_exits_70_and_reports_on_stderr`) | cyclopts 5.5.2 |
+| fire | H-16 (`tests/test_fire.py::test_fire_prints_a_value_built_after_the_close_point`), H-27 exception half (`::test_body_exception_propagates_but_the_scope_still_closed`), H-22 / H-23 (`::test_startup_runs_before_the_body_and_shutdown_after`, `::test_shutdown_failure_exits_70_and_reports_on_stderr`) | fire 0.7.1 |
+
+Paths are relative to the app — `tests/test_argparse.py` is
+`examples/apps/argparse/tests/test_argparse.py`. Versions are pinned in
+`examples/apps/*/requirements.txt`: click 8.5.1, typer 0.29.2 (with click pinned beside it,
+for the reason recorded in that file), cyclopts 5.5.2, fire 0.7.1, argparse from the
+interpreter.
+
+**Claim ids with no shipped assertion**, and why — these are observations about what the
+framework does, recorded once at authoring time and not re-run by any gate. They are listed
+rather than dropped so a reader can tell "we measured this" from "we test this":
+
+| Id | Claim | Why no test |
+|---|---|---|
+| H-1, H-5, H-9, H-13 | the handler's return value is discarded (argparse, click) or becomes the exit code (Typer discards, cyclopts converts) | every example adapter owns the exit code itself, so the framework's default is neutralised rather than depended on |
+| H-3 | argparse accepts a handler returning a coroutine and never awaits it | the examples never return a bare coroutine from a handler; T14-04 covers the same trap on Typer |
+| H-7, H-8 | `ctx.exit(4)` and the `body → finally → call_on_close` order | the adapters exit through `SystemExit`/`typer.Exit`; T14-02 and T14-07 assert the codes that matter |
+| H-18 | click's default SIGTERM handler kills the process with no cleanup | asserting "nothing ran" would pass for the wrong reason on any host; T14-14 asserts the handler side instead |
+| H-21 | one `REQUEST` instance per `async with container.scope()` | covered at the library level (T09-03, T09-17); the CLI tests assert the adapter never bypasses the scope (T14-10) |
+| H-24 | the microsecond table in §6.4 | no timing gate in this repository — see §6.4's caveat |
 
 ---
 

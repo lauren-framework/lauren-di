@@ -48,6 +48,7 @@ nav:
       - Custom providers and tokens: guides/custom-providers.md
       - Testing and overrides: guides/testing.md
       - Hosting in a framework: guides/hosting.md
+      - Hosting in a CLI: guides/cli.md
   - Recipes: recipes.md
   - Module visibility: visibility.md
   - Errors: errors.md
