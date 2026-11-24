@@ -616,17 +616,19 @@ def test_the_prds_evidence_session_installs_the_reference_dependency(noxfile: An
 
 
 def test_the_prds_evidence_gate_refuses_another_interpreter(noxfile: Any) -> None:
-    """Two probes quote CPython, so the transcripts are pinned to one interpreter.
+    """The session records and replays on one interpreter, and says which.
 
-    ``E-306c`` records asyncio's message and ``E-53`` records how a function
-    annotation is rendered; both changed between 3.13 and 3.14. Running the gate
-    on another interpreter would therefore report drift that is not a change in
-    ``lauren``, so the session refuses instead of failing mysteriously.
+    ``--check`` is version-independent — the two probes that once quoted CPython
+    (``E-306c``'s asyncio message, ``E-53``'s annotation spelling) now report
+    stable discriminators, and the gate is measured green on 3.13 and 3.14 — but
+    each transcript header names the interpreter that recorded it, so a re-record
+    on a different one would relabel the corpus. The session therefore refuses,
+    and points at the runner for a proof on another interpreter.
     """
     session = FakeSession()
     session.python = "3.13"
 
-    with pytest.raises(AssertionError, match="recorded transcripts were captured"):
+    with pytest.raises(AssertionError, match="as the interpreter they were"):
         noxfile.prds_evidence(session)
 
 

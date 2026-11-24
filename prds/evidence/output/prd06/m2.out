@@ -1,6 +1,7 @@
 # probe: prd06/m2.py
 # lauren.__file__: <reference>/lauren/__init__.py
 # reference._di.__init__.py sha256: 22d1c3f33814c02ed14dc6129cfc82c8ecdaf87461c09875dee6823ec3289bd2
+# python: CPython 3.14.4
 # exit: 0
 E-207 two modules each bind Store once; compile        -> ProtocolAmbiguityError | detail: {'token': 'Store', 'count': 2} | msg: Multiple bindings for Store
      compiled flag: False

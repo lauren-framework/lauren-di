@@ -30,15 +30,20 @@ no cited-but-not-emitted ids).
 no writes). Before goal #48 nothing ran it, so a reformatted probe or a hand-edited
 transcript could invalidate a citation and every gate stayed green.
 
-The transcripts are recorded on the project's primary interpreter (`PRIMARY_PYTHON`,
-3.14) and against the reference commit `tests.yml`'s parity job pins. Two probes
-quote CPython rather than `lauren` — `E-306c` records asyncio's message and `E-53`
-records how a function annotation is rendered — and both differ on 3.13, so the
-session refuses to run on any other interpreter rather than reporting phantom drift.
+The transcripts are recorded against the reference commit `tests.yml`'s parity job
+pins, on the project's primary interpreter (`PRIMARY_PYTHON`, 3.14). Two probes
+once quoted CPython rather than `lauren` — `E-306c` recorded asyncio's message and
+`E-53` recorded how a function annotation is rendered — which made the corpus
+reproduce on one interpreter only. Both now report version-stable discriminators
+(`E-306c` prints the value `has_provider` returns; `E-53` decomposes the
+`Annotated` alias), so `--check` passes on 3.13 and 3.14 alike, measured on both,
+and each header names the interpreter that recorded it.
 
 Each header names the reference root as `<reference>` and the sha256 of
 `_di/__init__.py`, so a transcript says *what* was measured rather than where this
-machine keeps it; a recorded transcript contains no absolute path. The runner also
+machine keeps it; a recorded transcript contains no absolute path. The `# python:`
+line is recorded but not compared: it says where the corpus was captured, and the
+body is what has to reproduce. The runner also
 refuses a **dirty** reference checkout: uncommitted edits there are a different
 build (the sibling checkout here has one extra name in `lauren.__all__`, 295
 against the pin's 294) and the `_di` digest does not reveal them. Point

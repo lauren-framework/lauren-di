@@ -590,15 +590,16 @@ def prds_evidence(session: nox.Session) -> None:
     same "a check nobody runs is not a check" defect ``prds`` (goal #36) closed
     for the corpus checker one level up.
 
-    The session is pinned to ``PRIMARY_PYTHON`` and refuses any other
-    interpreter. A probe prints what the reference *raised*, and two of those
-    observations quote CPython rather than ``lauren``: ``E-306c`` records
-    asyncio's message (``a coroutine was expected, got False`` on 3.13,
-    ``An asyncio.Future, a coroutine or an awaitable is required`` on 3.14) and
-    ``E-53`` records how 3.14 renders a function annotation
-    (``__main__.fn_other``) versus 3.13's bare ``fn_other``. The recorded
-    transcripts were therefore re-recorded on the primary interpreter, so the
-    gate is reproducible on the interpreter every other gate runs.
+    The session is pinned to ``PRIMARY_PYTHON``. That pin is a *recording*
+    convention, not a correctness requirement: the two probes that once quoted
+    CPython's own text have been rewritten to report version-stable
+    discriminators (``E-306c`` now prints the value ``has_provider`` returns
+    instead of asyncio's complaint about being handed a ``bool``; ``E-53``
+    decomposes the ``Annotated`` alias instead of relying on the release's
+    spelling of a function argument), so ``--check`` passes on 3.13 and 3.14
+    alike — measured on both — and each header records the interpreter it was
+    recorded on. The pin keeps a re-record on the interpreter every other gate
+    runs, and ``--check`` never treats the recorded interpreter as drift.
 
     The reference checkout must be **clean**. A dirty tree is a different build
     from the pinned commit — this repository's sibling checkout carries
@@ -625,11 +626,14 @@ def prds_evidence(session: nox.Session) -> None:
     requested = getattr(session, "python", PRIMARY_PYTHON)
     if requested != PRIMARY_PYTHON:
         session.error(
-            f"the recorded transcripts were captured on Python {PRIMARY_PYTHON} and two "
-            f"probes quote CPython's own error text, so running this session on "
-            f"{requested} reports drift that is not a change in `lauren`. Drop `--python` "
-            f"(or pass --python {PRIMARY_PYTHON}) and re-record deliberately — "
-            "`python prds/evidence/run_all.py` — if the corpus should move."
+            f"the transcripts name Python {PRIMARY_PYTHON} as the interpreter they were "
+            f"captured on, so this session records and replays on {PRIMARY_PYTHON} only; "
+            f"a run on {requested} would relabel the corpus with an interpreter the rest "
+            f"of the gate set does not use. `--check` is itself version-independent (the "
+            f"two probes that used to quote CPython now report stable discriminators, "
+            f"measured on 3.13 and 3.14, and the header records which interpreter "
+            "recorded each transcript), so run `python prds/evidence/run_all.py --check` "
+            "on another interpreter if that is what you want to prove."
         )
     session.install(*REFERENCE_DEPENDENCIES)
     session.run("python", str(PRDS_EVIDENCE_RUN_ALL), "--check", *session.posargs)

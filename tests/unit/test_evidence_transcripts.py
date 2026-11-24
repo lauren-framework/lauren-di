@@ -22,7 +22,15 @@ Four things are pinned here:
 * the reference checkout must be *clean*: a dirty tree is a different build from
   the pinned commit, and the ``_di/__init__.py`` sha256 does not cover it — this
   repository's sibling checkout carries uncommitted edits that add one name to
-  ``lauren.__all__`` (295 where the pin has 294) with an identical ``_di`` digest.
+  ``lauren.__all__`` (295 where the pin has 294) with an identical ``_di`` digest;
+* the interpreter that recorded a transcript is *named* but *not compared*, the
+  same distinction applied to the other provenance in the header. Two probes used
+  to print CPython's own text — ``E-306c`` recorded asyncio's complaint about
+  being handed a ``bool``, ``E-53`` recorded how 3.14 spells a function argument
+  in an ``Annotated`` alias — so the corpus reproduced on the recording
+  interpreter only. Both now report version-stable discriminators, and
+  ``normalise_python`` keeps the ``# python:`` line from turning a replay on 3.13
+  into a byte diff that looks like repository drift.
 """
 
 from __future__ import annotations
@@ -30,6 +38,8 @@ from __future__ import annotations
 import importlib.util
 import json
 import pathlib
+import platform
+import re
 import subprocess
 import sys
 from types import ModuleType
@@ -236,4 +246,153 @@ def test_reference_dirty_paths_reads_the_checkout(tmp_path: pathlib.Path) -> Non
 
     assert module.reference_dirty_paths(tmp_path) == 1, (
         "an uncommitted edit was not counted, so the refusal would never fire"
+    )
+
+
+def test_the_header_names_the_interpreter_that_recorded_it(runner: ModuleType) -> None:
+    """Provenance a reader wants: *where* the capture happened, not just what.
+
+    The line is not decorative — ``--check`` prints it when a replay runs
+    elsewhere, and that note is the only thing that distinguishes "this corpus
+    reproduces on your interpreter" from "this was recorded on another one".
+    """
+    header = runner.header(
+        pathlib.Path(runner.EVIDENCE / "prd04" / "a.py"),
+        "/ref/lauren/__init__.py",
+        "a" * 64,
+        0,
+    )
+
+    assert runner.recorded_python(header) == (
+        f"{platform.python_implementation()} {platform.python_version()}"
+    ), (
+        "the header no longer records the interpreter that produced the transcript, so "
+        f"a reader cannot tell where it was captured:\n{header}"
+    )
+
+
+def test_every_recorded_transcript_names_its_recording_interpreter() -> None:
+    """The same property over the corpus, so a stale recording is visible.
+
+    A transcript recorded before the line existed would replay as drift on every
+    other interpreter with no hint as to why, so each committed one has to carry
+    it. ``ids.json`` is not a transcript and is excluded by the glob.
+    """
+    transcripts = sorted(OUTPUT.rglob("*.out"))
+    missing = [
+        path.relative_to(ROOT).as_posix()
+        for path in transcripts
+        if not any(
+            line.startswith("# python: ")
+            for line in path.read_text(encoding="utf-8").splitlines()[:6]
+        )
+    ]
+
+    assert len(transcripts) > 20, (
+        f"scanned only {len(transcripts)} transcript(s) under "
+        f"{OUTPUT.relative_to(ROOT).as_posix()} — the corpus moved or the glob stopped "
+        "reaching it"
+    )
+    assert not missing, (
+        f"{missing} do not name the interpreter that recorded them; re-record with "
+        "`python prds/evidence/run_all.py`"
+    )
+
+
+def test_the_interpreter_is_not_compared_but_the_body_still_is(
+    runner: ModuleType, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The line is informational: normalising it must not normalise anything else.
+
+    Two recordings that differ *only* in the ``# python:`` line describe the same
+    observation made twice, and reporting them as drift would re-introduce the
+    single-interpreter dependency the stable discriminators removed. Everything
+    else in the header stays load-bearing, so this test fails if the blanking is
+    ever widened to the whole preamble.
+    """
+    script = pathlib.Path(runner.EVIDENCE / "prd04" / "a.py")
+    origin, digest = "/tmp/ref-clean/lauren/__init__.py", "a" * 64
+    body = "E-50 Depends[Repo] raw annotation: typing.Annotated[__main__.Repo, ...]\n"
+    recorded = runner.header(script, origin, digest, 0) + body
+
+    class Elsewhere:
+        @staticmethod
+        def python_implementation() -> str:
+            return "CPython"
+
+        @staticmethod
+        def python_version() -> str:
+            return "3.99.0"
+
+    monkeypatch.setattr(runner, "platform", Elsewhere)
+    replayed = runner.header(script, origin, digest, 0) + body
+
+    assert recorded != replayed, "the two transcripts are byte-identical; nothing was proved"
+    assert runner.normalise_python(recorded) == runner.normalise_python(replayed), (
+        "a replay on another interpreter is reported as drift, which is the defect the "
+        "stable discriminators were meant to remove"
+    )
+    assert runner.recorded_python(recorded) != runner.recorded_python(replayed), (
+        "normalising the line must not destroy the provenance it carries"
+    )
+
+    assert runner.normalise_python(recorded) != runner.normalise_python(replayed + "E-51\n"), (
+        "a changed body compared equal — the blanking reached past the `# python:` line"
+    )
+    assert runner.normalise_python(recorded) != runner.normalise_python(
+        replayed.replace(digest, "b" * 64)
+    ), "the `_di` digest stopped being compared, so a transcript from another build passes"
+
+
+def test_check_notes_a_replay_elsewhere_instead_of_failing(
+    runner: ModuleType,
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: pathlib.Path,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    """``--check`` must report the difference a human needs and pass the gate.
+
+    The normalisation above is only half the behaviour: the run has to say *why*
+    the bytes differed, or a green corpus and a silent one look the same.
+    """
+    # The corpus is prd-name -> transcript, so the redirect keeps that shape: the
+    # runner prints each destination relative to EVIDENCE and builds the index
+    # label the same way, so OUTPUT has to sit inside it.
+    evidence = tmp_path / "evidence"
+    output = evidence / "output"
+    output.mkdir(parents=True)
+    monkeypatch.setattr(runner, "EVIDENCE", evidence)
+    monkeypatch.setattr(runner, "OUTPUT", output)
+    monkeypatch.setattr(runner, "probes", lambda: [evidence / "prd04" / "a.py"])
+    monkeypatch.setattr(runner, "cited_ids", lambda: {"E-50"})
+    monkeypatch.setattr(runner, "reserved_ids", lambda: set())
+    monkeypatch.setattr(runner, "reference_origin", lambda: ("/ref/lauren/__init__.py", "a" * 64))
+    monkeypatch.setattr(runner, "reference_dirty_paths", lambda reference=None: 0)
+    monkeypatch.setattr(runner, "run_probe", lambda script, env: (0, "E-50 body\n"))
+
+    assert runner.main([]) == 0, "the record path must succeed before --check can compare"
+    recorded = output / "prd04" / "a.out"
+    text = recorded.read_text(encoding="utf-8")
+    assert "# python: " in text, text
+
+    recorded.write_text(
+        re.sub(r"^# python: .*$", "# python: CPython 3.99.0", text, flags=re.MULTILINE),
+        encoding="utf-8",
+    )
+    capsys.readouterr()
+
+    assert runner.main(["--check"]) == 0, (
+        "`--check` failed on a transcript recorded on another interpreter whose body "
+        "reproduced exactly"
+    )
+    captured = capsys.readouterr().out
+    assert "recorded on CPython 3.99.0" in captured and "body identical" in captured, (
+        f"`--check` passed without saying the corpus was recorded elsewhere:\n{captured}"
+    )
+
+    recorded.write_text(text.replace("E-50 body", "E-50 other body"), encoding="utf-8")
+
+    assert runner.main(["--check"]) == 1, (
+        "a changed observation still passed — the interpreter line is being confused "
+        "with the body it heads"
     )

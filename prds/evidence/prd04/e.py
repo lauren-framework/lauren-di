@@ -1,5 +1,5 @@
 import asyncio
-from typing import Annotated, get_type_hints
+from typing import Annotated, get_args, get_type_hints
 from lauren._di import DIContainer
 from lauren._di.custom import Token, Inject, OptionalDep, use_value
 from lauren.decorators import injectable
@@ -29,7 +29,34 @@ except Exception as e: print("E-52 Depends resolve:", type(e).__name__, str(e)[:
 @injectable()
 class B:
     def __init__(self, r: Depends[fn_other]): self.r = r
-print("E-53 Depends[fn] raw annotation:", B.__init__.__annotations__['r'])
+
+
+def describe_annotation(annotation):
+    """Render a typing alias without depending on ``repr``'s spelling.
+
+    ``repr(Annotated[fn, Depends])`` is not stable across CPython releases: 3.13
+    renders the function argument as its bare ``__qualname__`` (``fn_other``) and
+    3.14 as ``module.__qualname__`` (``__main__.fn_other``). E-53 recorded the
+    second and `--check` then failed on the first, reporting a byte diff against
+    a corpus that was never wrong. Decomposing the alias names the same three
+    facts -- alias kind, argument name, metadata names -- without the renderer,
+    which is what the observation was ever about. E-50 and E-55 keep printing
+    ``repr`` because a *class* argument renders identically on both releases.
+    """
+    args = get_args(annotation)
+    if not args:
+        return type(annotation).__name__
+    argument, *metadata = args
+    name = getattr(argument, "__qualname__", None) or getattr(argument, "__name__", None)
+    rendered = ", ".join(
+        getattr(item, "__name__", type(item).__name__) for item in metadata
+    )
+    return f"{type(annotation).__name__}[{name or argument!r}" + (
+        f", {rendered}]" if rendered else "]"
+    )
+
+
+print("E-53 Depends[fn] raw annotation:", describe_annotation(B.__init__.__annotations__["r"]))
 c.register(B)
 try:
     b = asyncio.run(c.resolve(B)); print("E-54 Depends[fn] resolves:", type(b.r).__name__)

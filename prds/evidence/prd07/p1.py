@@ -21,6 +21,28 @@ def probe(label, fn):
         )
 
 
+def probe_sync(label, fn):
+    """Report a *synchronous* call without wrapping its result in ``asyncio.run``.
+
+    E-306c read ``asyncio.run(c.has_provider(Token))``, but ``has_provider`` is a
+    plain function returning a ``bool``, so the observation was CPython's own
+    complaint about being handed ``False``: ``TypeError: An asyncio.Future, a
+    coroutine or an awaitable is required`` on 3.13 and ``ValueError: a coroutine
+    was expected, got False`` on 3.14. That text says nothing about the container
+    and made the transcript reproducible only on the interpreter that recorded it.
+    The claim is that an override whose target nothing registers leaves the
+    container with no provider for that token -- which is the returned value, and
+    stable.
+    """
+    try:
+        r = fn()
+        print(f"{label:58s} -> ok: {r!r} (sync, not awaitable)"[:300])
+    except Exception as e:
+        print(
+            f"{label:58s} -> {type(e).__name__} | detail: {getattr(e, 'detail', None)}"[:300]
+        )
+
+
 @injectable()
 class Repo:
     pass
@@ -118,5 +140,5 @@ c6 = DIContainer(overrides=p6)
 c6.register(RequestRepo)
 probe("E-306 compile, override target absent", c6.compile)
 probe("E-306b applied_overrides", c6.applied_overrides)
-probe("E-306c optional flag is not consulted by the container",
-      lambda: asyncio.run(c6.has_provider(Repo)))
+probe_sync("E-306c has_provider for the unmatched target (no row was created)",
+           lambda: c6.has_provider(Repo))
