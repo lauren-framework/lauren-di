@@ -220,6 +220,9 @@ class TestOverrideErrors:
 
         class FakeRepository(Repository):
             def __init__(self) -> None:
+                super().__init__()  # CodeQL py/missing-call-to-init: the base
+                # initialiser still runs; only the value the test asserts on is
+                # replaced.
                 self.source = "fake"
 
         @injectable()

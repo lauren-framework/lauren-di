@@ -244,13 +244,17 @@ def test_t09_10_the_sync_bridge_serves_many_resolves_on_one_loop() -> None:
     try:
         bridge.run(container.startup())
         scopes = [bridge.run(_open_scope(container, index)) for index in range(4)]
-        errors: list[BaseException] = []
+        errors: list[Exception] = []
 
         def worker(scope: Any) -> None:
             try:
                 for _ in range(25):
                     bridge.run(scope.resolve(reference.Repo))
-            except BaseException as exc:  # pragma: no cover - the failure path
+            except Exception as exc:  # pragma: no cover - the failure path
+                # ``Exception``, not ``BaseException``: a failing resolve is
+                # recorded and fails the assertion below, while a control-flow
+                # exception (``KeyboardInterrupt``, ``SystemExit``) must keep
+                # propagating instead of being filed as a test artifact.
                 errors.append(exc)
 
         threads = [threading.Thread(target=worker, args=(scope,)) for scope in scopes]
