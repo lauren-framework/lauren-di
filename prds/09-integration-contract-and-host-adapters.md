@@ -802,6 +802,12 @@ constructed**, dominated by introspection rather than by the scope or the cache.
 that constructs many short-lived services per request should measure its own graph before
 blaming the container; a host that constructs one service per request will not see it.
 
+These bands are wall-clock figures from one box, so re-running `bridge_probe.py` on a second
+host gave **0.17–0.26 ms/op** over ten runs — the floor and ceiling move with load, which is
+why the durable claims are the *ordering* (one bridge call costs less than one `asyncio.run`,
+0.32 ms in the same session) and the preserved loop affinity, not the absolute microsecond
+count. Re-measure on the host you are deploying to before quoting a number to a user.
+
 ### 6.5 Evidence index
 
 Every claim above traces to one of these files, run on Python 3.13.13 with `PYTHONPATH`

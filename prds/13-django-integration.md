@@ -293,8 +293,8 @@ Measured (`probe_5.py`, sqlite3): `django.db.connections["default"]` is thread-a
 worker thread sees a *different* wrapper with no raw connection (`worker.identity_differs=True`,
 `worker.fresh_raw_none=True`), and using the main thread's wrapper in a worker raises
 `DatabaseError` (`worker.captured_wrapper=DatabaseError`). Closing a connection inside
-`transaction.atomic()` leaves `closed_in_transaction=True` and the next query raises
-`ProgrammingError` (`close_atomic=ProgrammingError closed_in_tx=True`).
+`transaction.atomic()` leaves `closed_in_tx=True` and the next query raises
+`ProgrammingError` (`close_in_atomic=ProgrammingError closed_in_tx=True`).
 
 | DJ id | Requirement |
 | --- | --- |
@@ -372,7 +372,7 @@ The host layer is the only one that imports Django; `lauren-di` sees no framewor
 | Close the scope on `request_finished` only | `WSGIHandler` never sends it (`wsgi.plain=st,mw_exit`); the test client and `ASGIHandler` send it before the body and again on close (`out_4.txt`: `started,finished` then `started,finished,finished`). |
 | Rely on a `ContextVar` as the scope | Two sequential WSGI requests leaked the value (`wsgi.leak2=leaked`); the ASGI harness leaked too, because the handler ran in the caller's context (`asgi.leak2=leaked`). |
 | Cache a Django connection in a singleton | `worker.captured_wrapper=DatabaseError` (`out_5.txt`). |
-| Close the connection in container teardown | `close_atomic=ProgrammingError` — a closed connection inside an atomic block poisons the transaction (`out_5.txt`). |
+| Close the connection in container teardown | `close_in_atomic=ProgrammingError` — a closed connection inside an atomic block poisons the transaction (`out_5.txt`). |
 | `asyncio.run()` inside an `async def` view | `RuntimeError` — a loop is already running in that thread. |
 
 ### 6.4 Cost
