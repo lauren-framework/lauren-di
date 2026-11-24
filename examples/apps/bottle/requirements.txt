@@ -1,0 +1,7 @@
+# Host dependencies for examples/apps/bottle (PRD 12).
+#
+# Pinned exactly: these are the versions the example was run against, and the
+# versions `nox -s examples` installs. `lauren_di` itself stays dependency-free
+# (PRD 01 §6.2) — this file is the *example's* dependency list, not the
+# library's, and it is never referenced from `pyproject.toml`.
+bottle==0.13.4
