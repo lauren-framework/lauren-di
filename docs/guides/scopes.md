@@ -197,6 +197,28 @@ What the scope owns:
 never written back to the container, so two scopes opened on the same
 container can carry different values.
 
+## What the unit of work is, per host
+
+A web host answers this for you: the container is the app object, the framework
+hands the adapter a per-request hook, and the request is the unit of work. A CLI
+host has neither the hook nor the request, so **the process is the container
+lifetime and the command body is the unit of work** `[H-20, H-21]`. Three
+consequences follow. Build the container inside the entry point, after the parser
+has bound its arguments and never at import time (`A-1`) — an import-time
+container is shared by every command in the process and outlives the loop its
+singletons were built on. Call `await container.startup()` before the body and
+`await container.shutdown()` in a `finally` after it (`A-2`), because the body
+raises, the parser exits and the user hits Ctrl-C, and none of those may skip
+teardown. And open exactly one scope around the body: a `REQUEST` provider
+resolved with no scope open is built, cached nowhere and never finalised —
+`shutdown()` still returns `()` and its `pre_destruct` never runs `[H-20]` —
+while the same token inside `async with container.scope()` is one instance for
+the whole invocation, torn down when the scope closes, before the process exits
+`[H-21]`. Reusing one container across two invocations is safe only when every
+provider is loop-free (`A-12`): a singleton built while the first invocation's
+loop was running keeps a reference to that loop, and the second invocation gets a
+new one. [cli](cli.md) has the five recipes.
+
 ## Strict vs lax request-scope mode
 
 The container does not refuse a `REQUEST` resolution just because no scope is
@@ -467,3 +489,5 @@ thread-safety or de-duplication guarantee.
   under parallel resolution.
 - [troubleshooting](../troubleshooting.md) — diagnosing leaked or
   never-torn-down instances.
+- [cli](cli.md) — the CLI recipes whose one container per process these
+  lifetimes produce.
