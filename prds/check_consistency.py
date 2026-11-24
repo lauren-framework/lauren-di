@@ -739,6 +739,19 @@ def check_owners() -> None:
 #: ``fragment``/``skip`` mean "deliberately partial, compile only".
 RUN_MARKER = "run"
 PARTIAL_MARKERS = frozenset({"fragment", "skip"})
+#: README §6's summary table restates this census for a reader who never runs the
+#: gate. It is the one statement of the number that no test reads, so it is the one
+#: that went stale when the corpus grew (goal #8's verification found three such
+#: rows); the gate now reads it back instead of trusting it.
+CENSUS_ROW_LABEL = "| PRD code blocks |"
+CENSUS_ROW = re.compile(
+    r"(?P<blocks>\d+)\s+python\s+blocks?\s+in\s+(?P<pages>\d+)\s+pages?"
+    r".*?(?P<compiled>\d+)\s+compil"
+    r".*?(?P<run>\d+)\s+marked"
+    r".*?(?P<partial>\d+)\s+`?fragment"
+    r".*?(?P<unmarked>\d+)\s+unmarked",
+    re.DOTALL,
+)
 #: The docs contract's compile flags: top-level ``await`` is legal and
 #: annotations stay strings, so a block may name a stand-in before it exists.
 _COMPILE_FLAGS = ast.PyCF_ALLOW_TOP_LEVEL_AWAIT | _future.annotations.compiler_flag
@@ -773,6 +786,63 @@ def prd_blocks() -> list[tuple[Path, object]]:
     return found
 
 
+def check_census_row(measured: dict[str, int]) -> None:
+    """README §6's ``PRD code blocks`` row must state the census just measured.
+
+    The gate *prints* the census; README §6 *promises* it to a reader who never
+    runs the gate. Two statements of one fact with nothing comparing them is the
+    shape that already failed once: adding pages 09–14 left the row claiming 8
+    pages / 117 references while the corpus held 14, and every check stayed green
+    because each half was well-formed on its own.
+
+    Three rules, each of which fails on a mutation rather than on the row happening
+    to be right:
+
+    * the row **exists** and is **unique** — a deleted row is not silently a check
+      that reads nothing, and a second row cannot become the unchecked figure;
+    * the row **parses** — if the wording stops stating all five numbers, the gate
+      says so instead of matching nothing and passing;
+    * every number **equals** the measurement, including ``compiled``, which the
+      prose of §6 promises separately from the marker split.
+    """
+    label = CENSUS_ROW_LABEL.strip("| ")
+    lines = README.read_text().splitlines()
+    hits = [i for i, line in enumerate(lines, 1) if line.startswith(CENSUS_ROW_LABEL)]
+    if not hits:
+        fail(
+            "blocks",
+            f"README §6 has no '{label}' row: the census this gate "
+            "prints is then stated nowhere a reader looks",
+        )
+        return
+    if len(hits) > 1:
+        fail(
+            "blocks",
+            f"README §6 states the '{label}' row {len(hits)} times "
+            f"(lines {hits}): one fact, one row, or the second is an unread figure",
+        )
+        return
+    line_no = hits[0]
+    match = CENSUS_ROW.search(lines[line_no - 1])
+    if match is None:
+        fail(
+            "blocks",
+            f"README §6 line {line_no}: the '{label}' row no longer "
+            "states '<n> python blocks in <n> pages — <n> compile, <n> marked run, "
+            "<n> fragment/skip, <n> unmarked', so this check cannot read it",
+        )
+        return
+    stated = {field: int(match.group(field)) for field in match.groupdict()}
+    for field, value in measured.items():
+        if stated[field] != value:
+            fail(
+                "blocks",
+                f"README §6 line {line_no}: the '{label}' row says "
+                f"{stated[field]} {field}, the corpus has {value} — the row and the gate "
+                "must state one census",
+            )
+
+
 def check_blocks() -> None:
     """Check 6: every python block in the PRDs compiles, and carries a marker.
 
@@ -797,7 +867,11 @@ def check_blocks() -> None:
 
     The census is reported as a note so the corpus's shape is visible: a page
     that loses its blocks, or a run/fragment split that moves, shows up in the
-    output and not only in a failure.
+    output and not only in a failure. The same numbers are then read *back* out of
+    README §6's ``PRD code blocks`` row (:func:`check_census_row`), because that row
+    is a hand-edited restatement for a reader who never runs this gate — the one
+    statement of the census nothing else compared, and the one that went stale when
+    pages 09–14 arrived.
     """
     blocks = prd_blocks()
     if not blocks:
@@ -838,6 +912,16 @@ def check_blocks() -> None:
         f"blocks: {len(blocks)} python block(s) in {len(PRDS)} PRD page(s) — "
         f"{compiled} compiled, {run} marked run, {partial} fragment/skip, "
         f"{unmarked} unmarked"
+    )
+    check_census_row(
+        {
+            "blocks": len(blocks),
+            "pages": len(PRDS),
+            "compiled": compiled,
+            "run": run,
+            "partial": partial,
+            "unmarked": unmarked,
+        }
     )
 
 

@@ -220,7 +220,11 @@ The final consistency pass (goal #10) checks, and this file records:
    `tests/docs/test_prd_examples.py` executes it, `fragment` (or `skip`) means
    deliberately partial. An unmarked block is a failure, because an unmarked
    block is one no gate has decided about — which is how the corpus came to hold
-   88 blocks that nothing compiled or ran.
+   88 blocks that nothing compiled or ran. The gate then reads its own census back
+   out of this file's `PRD code blocks` row below, so the printed census and the
+   published one are the same five numbers: the row must exist exactly once, must
+   parse, and must match `blocks`, `pages`, `compile`, `run`, `fragment`/`skip` and
+   `unmarked`.
 7. **Divergence registers** (goal #56) — each `§6.4 Intentional divergences from
    the reference` table is numbered `1..n` with no holes, and its prose agrees
    with it: a sentence naming `§6.4` with a typed count must state the register's
