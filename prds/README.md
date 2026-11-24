@@ -260,7 +260,7 @@ way — a valid probe path and a unique basename pass, an ambiguous basename and
 | Scope discipline | script-checked: pages 01–08 import no framework, pages 09–14 show one only in a `fragment`/`skip` fence (D-63), and in PRDs 01–07 a code sample may `import lauren` only inside PRD 02's `LAUREN_DI_PARITY_TARGET`-guarded shim (0 unguarded samples); `HTTP`/`ASGI` nouns otherwise appear only in non-goals, prior art and the compatibility pages |
 | PRD code blocks | 118 python blocks in 14 pages — 118 compile, 31 marked `run` (executed by `tests/docs/test_prd_examples.py`), 87 `fragment`/`skip`, 0 unmarked |
 | Divergence registers | 3 `§6.4` registers — PRD 02's 9 rows, PRD 03's 11, PRD 04's 10 — every typed count and parity claim agrees with its row set, and PRD 08 §5.9's 14 invariants cross-reference them both ways |
-| Evidence citations | 30 pages scanned; every backticked probe name resolves against `run_all.py`'s 23-probe inventory (keyed by basename *and* relative path, so `prd07/p1.py` and `prd08/p1.py` cannot mask each other) and every cited `out_N.txt` exists under `prds/evidence/output/`; an ambiguous basename fails rather than passing on a collision |
+| Evidence citations | 30 pages scanned; no page cites a probe filename any more (the host pages name tests and claim ids), the transcript arm resolves against the 23 recorded transcripts on disk, and both shapes are still enforced — keyed by basename *and* relative path, so `prd07/p1.py` and `prd08/p1.py` cannot mask each other and an ambiguous basename fails instead of passing on a collision |
 
 ### 6.1 Findings fixed by this pass
 
@@ -307,7 +307,17 @@ Pages 09–14 were written and verified against installed frameworks rather than
    a click group that routed subcommands through the wrong root, and an override probe that crashed
    before recording its result — plus one claim (PRD 14 H-24) whose quoted cost range excluded a
    measurement in its own transcript. All four were fixed at the probe and the page was rewritten
-   from the fresh transcript; no page now cites a number that a re-run does not reproduce.
+   from the fresh transcript.
+
+   That last pass left the pages resting on artifacts a reader could not open — the probes were
+   throwaway scripts under `/tmp` — so goal #14 replaced every §6.5 index with a claim-id →
+   runnable-artifact table and added the `citations` gate (§6, item 8) to keep it that way. The
+   rule that survives is narrower than "a re-run reproduces every number", because it cannot be:
+   the **behavioural** figures on 09–14 (call counts, exit codes, thread and loop identities,
+   event orderings) are asserted by shipped tests, so a re-run reproduces them or the suite goes
+   red; the **timing** figures are not asserted by anything, and the two pages that publish them
+   say so in place (PRD 09 §6.4, PRD 14 §6.4) and name the ordering claim that is asserted beside
+   each band.
 
 ## 7. Adding a PRD
 

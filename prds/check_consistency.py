@@ -1304,9 +1304,7 @@ def check_citations() -> None:
         by_name.setdefault(probe.name, []).append(relative)
     transcripts: dict[str, list[str]] = {}
     for path in EVIDENCE_OUTPUT.rglob("*.out"):
-        transcripts.setdefault(path.name, []).append(
-            path.relative_to(runner.EVIDENCE).as_posix()
-        )
+        transcripts.setdefault(path.name, []).append(path.relative_to(runner.EVIDENCE).as_posix())
     pages = list(PRDS) + sorted(DOC_PAGES.rglob("*.md"))
     probe_citations = 0
     resolved = 0
@@ -1324,8 +1322,8 @@ def check_citations() -> None:
             return True
         if not candidates:
             detail = (
-                f"no probe of that name is under prds/evidence/prd*/, so run_all.py "
-                f"never runs it and no transcript exists"
+                "no probe of that name is under prds/evidence/prd*/, so run_all.py "
+                "never runs it and no transcript exists"
                 if kind == "probe"
                 else "prds/evidence/output/ has no such file"
             )
@@ -1338,6 +1336,7 @@ def check_citations() -> None:
             )
         return False
 
+    transcripts_cited = 0
     for page in pages:
         for number, line in enumerate(page.read_text().splitlines(), start=1):
             where = f"{page.name}:{number}"
@@ -1345,12 +1344,20 @@ def check_citations() -> None:
                 probe_citations += 1
                 resolved += resolve(cited, by_name, "probe", where)
             for cited in CITED_TRANSCRIPT.findall(line):
+                transcripts_cited += 1
                 resolve(cited, transcripts, "a recorded transcript", where)
+    probe_clause = (
+        "no page cites a probe filename (the host pages name tests instead)"
+        if probe_citations == 0
+        else (
+            f"{resolved} of {probe_citations} probe citation(s) resolve to a script "
+            f"run_all.py executes ({sum(len(v) for v in by_name.values())} probes)"
+        )
+    )
     notes.append(
-        f"citations: {len(pages)} page(s) scanned; {resolved} of {probe_citations} probe "
-        f"citation(s) resolve to a script run_all.py executes "
-        f"({sum(len(v) for v in by_name.values())} probes) and "
-        f"{sum(len(v) for v in transcripts.values())} recorded transcript(s) exist"
+        f"citations: {len(pages)} page(s) scanned; {probe_clause}; "
+        f"{transcripts_cited} transcript citation(s) checked against the "
+        f"{sum(len(v) for v in transcripts.values())} recorded transcript(s) on disk"
     )
 
 

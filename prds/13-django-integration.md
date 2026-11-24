@@ -519,8 +519,9 @@ autoreload note (two processes, two containers, one `ready()` each).
 Conventions this page fixes:
 
 1. Compatibility recipes are documentation plus skip-guarded tests; they add no public name.
-2. Every recipe names the probe that justifies it, and every measured claim names a probe
-   file plus a transcript (§6.5).
+2. Every recipe names the shipped test that asserts it — `DJ-nn` in `examples/apps/django/tests/test_django.py`,
+   `T13-nn` for the handler-level rows — and every measured claim names that test rather than a probe
+   file (§6.5). A claim with no test says so in the row.
 3. Framework imports appear only inside `skip`/`fragment` fences (D-63).
 4. A host that owns a resource owns its teardown; the container only holds a reference
    (D-61).
