@@ -52,6 +52,12 @@ Two conventions are load-bearing:
 | 06 | [`06-module-visibility-decision-record.md`](06-module-visibility-decision-record.md) | Whether NestJS-style module encapsulation ships in v1 or v2, plus the design of `owning_module`, `set_visible` and visibility-filtered resolution either way | 02, 05 | Draft — 2026-11-21 |
 | 07 | [`07-testing-overrides-and-isolation.md`](07-testing-overrides-and-isolation.md) | `OverridePlan` / `ProviderOverride`, the five override kinds, build-scoped activation, concurrency isolation and the pytest fixture pattern | 02, 03, 04, 05, 06 | Draft — 2026-11-21 |
 | 08 | [`08-framework-compatibility-and-migration.md`](08-framework-compatibility-and-migration.md) | Symbol-by-symbol `lauren` → `lauren_di` mapping, replacements for the HTTP-bound seams, behavioural-parity test strategy, deprecation/alias policy | 01–07 | Draft — 2026-11-21 |
+| 09 | [`09-integration-contract-and-host-adapters.md`](09-integration-contract-and-host-adapters.md) | The framework-agnostic adapter contract: scope ownership and close point, host-value passing, the sync-loop bridge, startup/shutdown ordering, concurrency limits, error mapping, and the conformance suite every host adapter must pass | 01–08 | Draft — 2026-11-22 |
+| 10 | [`10-asgi-web-frameworks.md`](10-asgi-web-frameworks.md) | Hosting the container in Starlette 1.10.0 and FastAPI 0.165.0: lifespan start/stop, pure ASGI vs `BaseHTTPMiddleware`, `request.state` storage, streaming and background tasks as the scope close point, websockets, `Depends` coexistence, `httpx.ASGITransport` testing | 01–09 | Draft — 2026-11-24 |
+| 11 | [`11-async-web-frameworks.md`](11-async-web-frameworks.md) | Hosting the container in Litestar 2.25.0, Quart 0.23.1, Sanic 25.12.1 and aiohttp 3.14.5: each framework's startup/shutdown hook, middleware signature, per-request storage, sync-vs-async handler model, streaming and close point, comparison matrix | 01–09, 10 | Draft — 2026-11-24 |
+| 12 | [`12-wsgi-web-frameworks.md`](12-wsgi-web-frameworks.md) | Hosting the container in Flask 3.1.3, Falcon 4.4.0, Pyramid 2.1 and Bottle 0.13.4: thread-per-request model, the dedicated-loop bridge (D-59), `startup()` before serving (D-60), storage in `g`/`request`/`environ`, `teardown_request`/`on_close` vs `scope.close()` | 01–09 | Draft — 2026-11-24 |
+| 13 | [`13-django-integration.md`](13-django-integration.md) | Django 6.1.3: `AppConfig.ready()` vs the event loop, WSGI and ASGI deployment, sync/async views and the `sync_to_async` thread hop that makes an ambient scope impossible (D-58), middleware placement, `request_started`/`request_finished`, ORM connection affinity, test client and `override_settings` | 01–09 | Draft — 2026-11-24 |
+| 14 | [`14-cli-frameworks.md`](14-cli-frameworks.md) | Hosting the container in argparse, click 8.5.1, Typer 0.29.2, cyclopts 5.5.2 and fire 0.7.1: one container per invocation, `startup()`/`shutdown()` around the command, exit codes derived from `DestructError`, `ctx.obj` storage, the `Annotated`-vs-`Inject` collision, `CliRunner` testing, overrides, signal handling | 01–09 | Draft — 2026-11-24 |
 
 A final consistency pass (goal #10) re-verifies this table against the files on
 disk and records the result in §6.
@@ -73,10 +79,17 @@ checked file-by-file:
 | 07 | `lauren/_di/_overrides.py`; `lauren/testing/` (consumer only) |
 | 08 | all of the above plus `lauren/_asgi/`, `lauren/_lifecycle/`, `lauren/extractors.py` (couplings to remove) |
 
-Deliberately absent from this set: a PRD for routing, ASGI, OpenAPI, extractors,
-typed configuration, scheduling, stores, logging, CLI, or the module-graph
-compiler. Those are `lauren` features; `lauren-di` must remain usable without
-any of them.
+Deliberately absent from this set: a PRD for **implementing** routing, ASGI, OpenAPI,
+extractors, typed configuration, scheduling, stores, logging, CLI or the module-graph
+compiler. Those are `lauren` features; `lauren-di` must remain usable without any of them.
+
+PRDs 09–14 are a different kind of document: they specify how to **host** this library in
+somebody else's framework (Starlette/FastAPI, Litestar, Quart, Sanic, aiohttp, Flask,
+Falcon, Pyramid, Django, argparse/click/Typer/cyclopts). They are measured against those
+frameworks' installed versions, not against `../lauren-framework`, so §2.1's reference
+table does not apply to them; each records its own pinned versions in its §6.5. The
+boundary is unchanged: no adapter adds a runtime dependency to `lauren-di`, and no
+framework noun enters the library's API (D-57).
 
 ## 3. Product boundary (the one-paragraph test)
 
@@ -163,6 +176,13 @@ decision cites its ID; it does not restate the rationale. Status values are
 | D-54 | `ExtractionMarker` awareness is replaced by an optional, stdlib-only `field_predicate(name, annotation)`; the eleven HTTP extractor markers are explicitly not supported | Accepted | 02, 08 | Resolves D-9. The reference imports `lauren.extractors` inside the DI core (`_di/__init__.py:2313`), so `Annotated[str, Path]` on a class field becomes a dependency on `str` and fails with `MissingProviderError` (`E-404`, `E-405`) — a message about `str`, not about the misplaced marker. |
 | D-55 | Behavioural parity is asserted by an adapter-parameterised harness that pins the reference artifact and reports SKIP (never PASS) for an absent backend | Accepted | 08 | Prototyped green on the reference (`E-430`…`E-433`). The pin is load-bearing: this environment's default `lauren` is an installed build 420 lines shorter than `../lauren-framework`, so an unpinned run measures the wrong code (§1.5). |
 | D-56 | Public lifecycle surface after internalising the scheduler: `adopt_lifecycle()` and `instance_index()` stay public; `set_singleton()`, `mark_singleton_initialized()` and `singletons()` do not | Accepted | 01, 03, 05, 08 | Consistency pass (goal #10). PRD 03 §5.9 needs `adopt_lifecycle` for objects the container did not construct and `instance_index` for teardown auditability; the other three existed only so the reference's `LifecycleScheduler` could write back. Tests observe the cache through identity and hook firing, never by peeking. |
+| D-57 | No framework-specific module ships in `lauren-di`: a host integration is a documented adapter, and a packaged adapter would be a separate distribution depending on both projects | Proposed | 09 | Keeps `dependencies = []` (D-3) and the no-HTTP-vocabulary rule (PRD 01 §9). An adapter inside the library would make every host framework's release cadence a release constraint here, and `import flask` in the package is already a test failure (`tests/packaging/test_no_framework_imports.py`). |
+| D-58 | The integration seam is the explicit `ResolutionScope`; v1 adds no ambient `current_scope()` ContextVar | Proposed | 09 | A ContextVar does not survive a WSGI thread hop or Django's `sync_to_async`, so an ambient scope would be silently **absent** exactly where a host needs it. Hosts store the scope in their own request state (PRD 09 §5.3), which is one line per framework and cannot go missing without a `KeyError`. |
+| D-59 | A synchronous host owns its event-loop bridge; `lauren-di` ships no bridge | Proposed | 09 | Two measured patterns (PRD 09 §5.5): one long-lived loop on a dedicated thread (≈0.20 ms per call, 0.18–0.22 across five runs; preserves loop affinity and removes the cross-thread construction race) or `asyncio.run()` per unit of work (0.24–0.33 ms across five runs, and a loop-bound singleton then fails with `RuntimeError: Event loop is closed`). Which is correct depends on the host's loop model, so the library cannot choose. |
+| D-60 | Singleton construction is not serialised; a multi-threaded host must call `startup()` before serving | Proposed | 09 | Measured: eight threads racing the first resolve of one singleton construct eight instances and keep one — seven leak. After `startup()` the same race yields one. v1 adds no lock: a blocking lock cannot be held across an `await`, and a per-loop `asyncio.Lock` does not serialise threads. The supported contract is eager construction on one thread before the server binds. |
+| D-61 | The host adapter owns the scope lifetime: open after the host has bound the request/job/command, close in a `finally` after the response body (or command) has finished | Proposed | 09 | Streaming responses and background tasks make "after the handler returns" wrong, so PRD 09 §5.2 fixes the close point per host shape. Teardown errors are returned and reported through the host's log or error channel, never raised into a response. |
+| D-62 | Compatibility is proved by a skip-guarded conformance suite with pinned framework versions; an absent framework is SKIP, never PASS | Proposed | 09 | Mirrors D-55. PRD 09 §5.10 defines the invariants; each compatibility page pins the versions it measured in its §6.5, so a reader can tell which artifact a claim describes. |
+| D-63 | The PRD-level "no web-framework import" rule applies to the specification pages (01–08); compatibility pages (09–14) may show a framework import only inside a `fragment`/`skip` fence | Proposed | 09 | Resolves the conflict between PRD 01 §9 and a page whose subject **is** the framework. `run` fences execute corpus-wide in an environment with no framework installed, so a framework sample marked `run` would fail the corpus test. The library-level guarantee is unchanged and still enforced by `dependencies = []` and `tests/packaging/test_no_framework_imports.py`. |
 
 ## 5. Status vocabulary and workflow
 
@@ -192,14 +212,19 @@ The final consistency pass (goal #10) checks, and this file records:
    is used across all PRDs (a generated symbol/name diff, not eyeballing).
 5. **Scope discipline** — no PRD reintroduces an HTTP, routing, extractor,
    config, scheduling or module-graph concern except as an explicit
-   compatibility note in 08.
+   compatibility note in 08 or in the host-compatibility pages 09–14, which may
+   show a framework import only inside a `fragment`/`skip` fence (D-63).
 6. **PRD code blocks** (goal #50) — every fenced `python` block in
    `prds/[0-9][0-9]-*.md` compiles, including the ones marked `fragment`/`skip`,
    and every block carries a marker: `run` means a reader is meant to type it and
    `tests/docs/test_prd_examples.py` executes it, `fragment` (or `skip`) means
    deliberately partial. An unmarked block is a failure, because an unmarked
    block is one no gate has decided about — which is how the corpus came to hold
-   88 blocks that nothing compiled or ran.
+   88 blocks that nothing compiled or ran. The gate then reads its own census back
+   out of this file's `PRD code blocks` row below, so the printed census and the
+   published one are the same five numbers: the row must exist exactly once, must
+   parse, and must match `blocks`, `pages`, `compile`, `run`, `fragment`/`skip` and
+   `unmarked`.
 7. **Divergence registers** (goal #56) — each `§6.4 Intentional divergences from
    the reference` table is numbered `1..n` with no holes, and its prose agrees
    with it: a sentence naming `§6.4` with a typed count must state the register's
@@ -210,7 +235,7 @@ The final consistency pass (goal #10) checks, and this file records:
    resolve to a row that names that `P-n` back, and every §5.9 row marked
    `**divergence:**` must be named by the register sentence.
 
-Result of the last run: **passed** (2026-11-21, goal #10). Rerun with
+Result of the last run: **passed** (2026-11-24, the 09–14 integration pass). Rerun with
 `python3 prds/check_consistency.py` — exit 0 means clean; the script *is* the check, not a
 description of it. Its teeth were tested: six seeded regressions (a `shutdown()` returning `None`,
 a dangling link, a renamed section, a non-existent cross-reference, a deleted decision row, and an
@@ -218,13 +243,13 @@ unguarded `from lauren import`) each make it exit 1.
 
 | Check | Result |
 |-------|--------|
-| Index/file parity | 8 files on disk, 8 rows in §2, no duplicate rows, no dangling row |
-| Template completeness | 8/8 PRDs × 10 sections, same titles and order |
-| Reference integrity | 0 dangling relative links; 117 `PRD 0N §x` cross-references resolve; D-1…D-56 defined exactly once, contiguous, no undefined citation, and no decision left in the `Open` state (40 remain `Proposed` by design — every one of them is a row in §4) |
+| Index/file parity | 14 files on disk, 14 rows in §2, no duplicate rows, no dangling row |
+| Template completeness | 14/14 PRDs × 10 sections, same titles and order |
+| Reference integrity | 0 dangling relative links; 197 `PRD 0N §x` cross-references and 538 `PRD NN` mentions resolve; D-1…D-63 defined exactly once, contiguous, no undefined citation, and no decision left in the `Open` state (47 remain `Proposed` by design — every one of them is a row in §4) |
 | Symbol consistency | curated table green: `shutdown()` return, `Depends[T] is T`, the public surface, `resolve` keywords, five override kinds and their scope-inheritance rows, `Scope` = 0/1/2, the 18-field `Provider`, and no `container.close()` |
-| Scope discipline | script-checked: no PRD imports a web framework, and in PRDs 01–07 a code sample may `import lauren` only inside PRD 02's `LAUREN_DI_PARITY_TARGET`-guarded shim (0 unguarded samples); `HTTP`/`ASGI` nouns otherwise appear only in non-goals, prior art and 08's compatibility notes |
-| PRD code blocks | 88 python blocks in 8 pages — 88 compile, 28 marked `run` (executed by `tests/docs/test_prd_examples.py`), 60 `fragment`, 0 unmarked |
-| Divergence registers | 3 `§6.4` registers — PRD 02's 9 rows, PRD 03's 11, PRD 04's 10 — every typed count and parity claim agrees with its row set, and PRD 08 §5.9's 13 invariants cross-reference them both ways |
+| Scope discipline | script-checked: pages 01–08 import no framework, pages 09–14 show one only in a `fragment`/`skip` fence (D-63), and in PRDs 01–07 a code sample may `import lauren` only inside PRD 02's `LAUREN_DI_PARITY_TARGET`-guarded shim (0 unguarded samples); `HTTP`/`ASGI` nouns otherwise appear only in non-goals, prior art and the compatibility pages |
+| PRD code blocks | 118 python blocks in 14 pages — 118 compile, 31 marked `run` (executed by `tests/docs/test_prd_examples.py`), 87 `fragment`/`skip`, 0 unmarked |
+| Divergence registers | 3 `§6.4` registers — PRD 02's 9 rows, PRD 03's 11, PRD 04's 10 — every typed count and parity claim agrees with its row set, and PRD 08 §5.9's 14 invariants cross-reference them both ways |
 
 ### 6.1 Findings fixed by this pass
 
@@ -249,6 +274,29 @@ Five contradictions and two stale cross-references were found and reconciled:
 Item 4 was a genuine design fork rather than a typo, so it was put to the owner and decided as D-56
 instead of being guessed.
 
+### 6.2 The host-compatibility pass (09–14)
+
+Pages 09–14 were written and verified against installed frameworks rather than against
+`../lauren-framework`, so this pass changed the register and the gate as well as the counts above:
+
+1. **D-57…D-63 added, all `Proposed`.** D-57 keeps adapters outside the package; D-58 refuses an
+   ambient `current_scope()` ContextVar because it does not survive a WSGI thread hop or Django's
+   `sync_to_async`; D-59 leaves the sync-loop bridge to the host; D-60 requires `startup()` before a
+   threaded server binds; D-61 fixes the close point per host shape; D-62 makes an absent framework
+   a SKIP; D-63 resolves the conflict between PRD 01 §9's no-framework-import rule and pages whose
+   subject *is* the framework.
+2. **The scope check learned the split.** `prds/check_consistency.py` now permits a framework import
+   only in a `fragment`/`skip` fence on pages 09–14. A `run` fence executes corpus-wide in an
+   environment with no framework installed, so a framework sample marked `run` would fail the
+   corpus test — which is why D-63 names the two allowed markers rather than "compatibility pages
+   are exempt".
+3. **Verification was adversarial, and it paid.** Re-running each page's probes end to end found
+   three probes that had been producing false evidence — a Typer one-command app invoked with its
+   own subcommand name (Typer's single-command collapse ate it, manufacturing `exit=2` "failures"),
+   a click group that routed subcommands through the wrong root, and an override probe that crashed
+   before recording its result — plus one claim (PRD 14 H-24) whose quoted cost range excluded a
+   measurement in its own transcript. All four were fixed at the probe and the page was rewritten
+   from the fresh transcript; no page now cites a number that a re-run does not reproduce.
 
 ## 7. Adding a PRD
 

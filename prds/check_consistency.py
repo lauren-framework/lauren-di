@@ -297,19 +297,82 @@ def check_symbols() -> None:
     notes.append("symbols: shutdown/Depends/surface/resolve/overrides/scopes/Provider all agree")
 
 
+#: The framework names a compatibility page may need to show. Broader than the
+#: original five (starlette/fastapi/uvicorn/quart/flask) because PRDs 09-14 cover the
+#: CLI and WSGI families too, and a rule that only named the ASGI stack would have
+#: let ``from django.db import connection`` through without a word.
+FRAMEWORK_IMPORT = re.compile(
+    r"^\s*(?:from|import)\s+"
+    r"(starlette|fastapi|uvicorn|quart|flask|django|sanic|litestar|aiohttp|falcon|"
+    r"pyramid|bottle|click|typer|cyclopts|rich_click|fire)\b",
+    re.M,
+)
+#: PRDs that document how to embed the library in a host framework. Their subject *is*
+#: the framework, so they are the one place a framework import is not a scope leak.
+COMPATIBILITY_PAGES = ("09-", "10-", "11-", "12-", "13-", "14-")
+
+
+def _check_compatibility_fences(page: Path) -> None:
+    """A compatibility page may show a framework import, but only in a partial fence.
+
+    ``run`` fences are executed corpus-wide by ``tests/docs/test_prd_examples.py`` in an
+    environment whose ``dependencies`` list is empty, so a framework sample marked
+    ``run`` would be a promise the corpus cannot keep. ``fragment``/``skip`` is the
+    honest marker for a sample that needs a third-party package to execute.
+    """
+    fence: list[str] = []
+    markers: frozenset[str] = frozenset()
+    inside = False
+    for ln in page.read_text().splitlines():
+        stripped = ln.strip()
+        if stripped.startswith("```"):
+            if inside:
+                body = "\n".join(fence)
+                if FRAMEWORK_IMPORT.search(body) and not (markers & {"fragment", "skip"}):
+                    fail(
+                        "scope",
+                        f"{page.name}: a framework import sits in a fence marked "
+                        f"{sorted(markers) or 'nothing'}; a compatibility sample that needs a "
+                        "third-party package must be `fragment`/`skip`, never `run`",
+                    )
+                fence = []
+                markers = frozenset()
+            else:
+                words = stripped.strip("`").split()
+                markers = frozenset(word.lower() for word in words[1:])
+            inside = not inside
+            continue
+        if inside:
+            fence.append(ln)
+
+
 def check_scope() -> None:
     """Check 5: no PRD drags a non-DI concern into the library's API.
 
-    Two mechanical rules, chosen because they are the ones a reviewer cannot eyeball reliably:
-    * a code fence in PRDs 01-07 may import ``lauren`` only if the same fence is the guarded
-      parity shim (it mentions ``LAUREN_DI_PARITY_TARGET``);
-    * no PRD may import a web framework at all.
+    Three mechanical rules, chosen because they are the ones a reviewer cannot eyeball
+    reliably:
+
+    * a code fence in PRDs 01-07 may import ``lauren`` only if the same fence is the
+      guarded parity shim (it mentions ``LAUREN_DI_PARITY_TARGET``);
+    * a **specification** page (01-08) may not import a web framework at all: the
+      library has no HTTP vocabulary, and a sample that imports one teaches the
+      opposite;
+    * a **compatibility** page (09+) is the one place a framework import is the subject
+      rather than a leak, so it may show one -- but only inside a fence marked
+      ``fragment``/``skip`` (see :func:`_check_compatibility_fences`).
+
+    The third rule does not weaken the property the first two protect. The library's
+    zero-framework-import guarantee is enforced by ``dependencies = []`` and
+    ``tests/packaging/test_no_framework_imports.py``, which read the package; this
+    check reads the prose, and the prose is now allowed to describe a host.
     """
-    forbidden = re.compile(r"^\s*(?:from|import)\s+(starlette|fastapi|uvicorn|quart|flask)\b", re.M)
     for p in PRDS:
         name = p.name
         text = p.read_text()
-        if forbidden.search(text):
+        if name.startswith(COMPATIBILITY_PAGES):
+            _check_compatibility_fences(p)
+            continue
+        if FRAMEWORK_IMPORT.search(text):
             fail("scope", f"{name}: imports a web framework")
         if not name.startswith(("01-", "02-", "03-", "04-", "05-", "06-", "07-")):
             continue
@@ -332,7 +395,10 @@ def check_scope() -> None:
                 continue
             if inside:
                 fence.append(ln)
-    notes.append("scope: no web-framework imports; unguarded `import lauren` samples: 0")
+    notes.append(
+        "scope: specification pages import no framework; compatibility pages show one "
+        "only in fragment/skip fences; unguarded `import lauren` samples: 0"
+    )
 
 
 #: The two registry tables in ``GOALS.md``, and where each keeps the words that
@@ -673,6 +739,19 @@ def check_owners() -> None:
 #: ``fragment``/``skip`` mean "deliberately partial, compile only".
 RUN_MARKER = "run"
 PARTIAL_MARKERS = frozenset({"fragment", "skip"})
+#: README §6's summary table restates this census for a reader who never runs the
+#: gate. It is the one statement of the number that no test reads, so it is the one
+#: that went stale when the corpus grew (goal #8's verification found three such
+#: rows); the gate now reads it back instead of trusting it.
+CENSUS_ROW_LABEL = "| PRD code blocks |"
+CENSUS_ROW = re.compile(
+    r"(?P<blocks>\d+)\s+python\s+blocks?\s+in\s+(?P<pages>\d+)\s+pages?"
+    r".*?(?P<compiled>\d+)\s+compil"
+    r".*?(?P<run>\d+)\s+marked"
+    r".*?(?P<partial>\d+)\s+`?fragment"
+    r".*?(?P<unmarked>\d+)\s+unmarked",
+    re.DOTALL,
+)
 #: The docs contract's compile flags: top-level ``await`` is legal and
 #: annotations stay strings, so a block may name a stand-in before it exists.
 _COMPILE_FLAGS = ast.PyCF_ALLOW_TOP_LEVEL_AWAIT | _future.annotations.compiler_flag
@@ -707,12 +786,69 @@ def prd_blocks() -> list[tuple[Path, object]]:
     return found
 
 
+def check_census_row(measured: dict[str, int]) -> None:
+    """README §6's ``PRD code blocks`` row must state the census just measured.
+
+    The gate *prints* the census; README §6 *promises* it to a reader who never
+    runs the gate. Two statements of one fact with nothing comparing them is the
+    shape that already failed once: adding pages 09–14 left the row claiming 8
+    pages / 117 references while the corpus held 14, and every check stayed green
+    because each half was well-formed on its own.
+
+    Three rules, each of which fails on a mutation rather than on the row happening
+    to be right:
+
+    * the row **exists** and is **unique** — a deleted row is not silently a check
+      that reads nothing, and a second row cannot become the unchecked figure;
+    * the row **parses** — if the wording stops stating all five numbers, the gate
+      says so instead of matching nothing and passing;
+    * every number **equals** the measurement, including ``compiled``, which the
+      prose of §6 promises separately from the marker split.
+    """
+    label = CENSUS_ROW_LABEL.strip("| ")
+    lines = README.read_text().splitlines()
+    hits = [i for i, line in enumerate(lines, 1) if line.startswith(CENSUS_ROW_LABEL)]
+    if not hits:
+        fail(
+            "blocks",
+            f"README §6 has no '{label}' row: the census this gate "
+            "prints is then stated nowhere a reader looks",
+        )
+        return
+    if len(hits) > 1:
+        fail(
+            "blocks",
+            f"README §6 states the '{label}' row {len(hits)} times "
+            f"(lines {hits}): one fact, one row, or the second is an unread figure",
+        )
+        return
+    line_no = hits[0]
+    match = CENSUS_ROW.search(lines[line_no - 1])
+    if match is None:
+        fail(
+            "blocks",
+            f"README §6 line {line_no}: the '{label}' row no longer "
+            "states '<n> python blocks in <n> pages — <n> compile, <n> marked run, "
+            "<n> fragment/skip, <n> unmarked', so this check cannot read it",
+        )
+        return
+    stated = {field: int(match.group(field)) for field in match.groupdict()}
+    for field, value in measured.items():
+        if stated[field] != value:
+            fail(
+                "blocks",
+                f"README §6 line {line_no}: the '{label}' row says "
+                f"{stated[field]} {field}, the corpus has {value} — the row and the gate "
+                "must state one census",
+            )
+
+
 def check_blocks() -> None:
     """Check 6: every python block in the PRDs compiles, and carries a marker.
 
-    The corpus holds 88 python blocks and, before this check, no gate read one:
-    ``scripts/check_docs_contract.py``'s source list has no ``prds/`` page, this
-    module parsed prose and tables but never a block, and
+    When this check was written the corpus held 88 python blocks and no gate read
+    one: ``scripts/check_docs_contract.py``'s source list has no ``prds/`` page,
+    this module parsed prose and tables but never a block, and
     ``tests/docs/test_prd_examples.py`` covered two sections. A block with a
     plain ``SyntaxError`` — or with a member the library does not ship, which is
     how PRD 03's ``scope.teardown_errors`` survived a whole gate set — therefore
@@ -731,7 +867,11 @@ def check_blocks() -> None:
 
     The census is reported as a note so the corpus's shape is visible: a page
     that loses its blocks, or a run/fragment split that moves, shows up in the
-    output and not only in a failure.
+    output and not only in a failure. The same numbers are then read *back* out of
+    README §6's ``PRD code blocks`` row (:func:`check_census_row`), because that row
+    is a hand-edited restatement for a reader who never runs this gate — the one
+    statement of the census nothing else compared, and the one that went stale when
+    pages 09–14 arrived.
     """
     blocks = prd_blocks()
     if not blocks:
@@ -772,6 +912,16 @@ def check_blocks() -> None:
         f"blocks: {len(blocks)} python block(s) in {len(PRDS)} PRD page(s) — "
         f"{compiled} compiled, {run} marked run, {partial} fragment/skip, "
         f"{unmarked} unmarked"
+    )
+    check_census_row(
+        {
+            "blocks": len(blocks),
+            "pages": len(PRDS),
+            "compiled": compiled,
+            "run": run,
+            "partial": partial,
+            "unmarked": unmarked,
+        }
     )
 
 
