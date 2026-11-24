@@ -297,19 +297,82 @@ def check_symbols() -> None:
     notes.append("symbols: shutdown/Depends/surface/resolve/overrides/scopes/Provider all agree")
 
 
+#: The framework names a compatibility page may need to show. Broader than the
+#: original five (starlette/fastapi/uvicorn/quart/flask) because PRDs 09-14 cover the
+#: CLI and WSGI families too, and a rule that only named the ASGI stack would have
+#: let ``from django.db import connection`` through without a word.
+FRAMEWORK_IMPORT = re.compile(
+    r"^\s*(?:from|import)\s+"
+    r"(starlette|fastapi|uvicorn|quart|flask|django|sanic|litestar|aiohttp|falcon|"
+    r"pyramid|bottle|click|typer|cyclopts|rich_click|fire)\b",
+    re.M,
+)
+#: PRDs that document how to embed the library in a host framework. Their subject *is*
+#: the framework, so they are the one place a framework import is not a scope leak.
+COMPATIBILITY_PAGES = ("09-", "10-", "11-", "12-", "13-", "14-")
+
+
+def _check_compatibility_fences(page: Path) -> None:
+    """A compatibility page may show a framework import, but only in a partial fence.
+
+    ``run`` fences are executed corpus-wide by ``tests/docs/test_prd_examples.py`` in an
+    environment whose ``dependencies`` list is empty, so a framework sample marked
+    ``run`` would be a promise the corpus cannot keep. ``fragment``/``skip`` is the
+    honest marker for a sample that needs a third-party package to execute.
+    """
+    fence: list[str] = []
+    markers: frozenset[str] = frozenset()
+    inside = False
+    for ln in page.read_text().splitlines():
+        stripped = ln.strip()
+        if stripped.startswith("```"):
+            if inside:
+                body = "\n".join(fence)
+                if FRAMEWORK_IMPORT.search(body) and not (markers & {"fragment", "skip"}):
+                    fail(
+                        "scope",
+                        f"{page.name}: a framework import sits in a fence marked "
+                        f"{sorted(markers) or 'nothing'}; a compatibility sample that needs a "
+                        "third-party package must be `fragment`/`skip`, never `run`",
+                    )
+                fence = []
+                markers = frozenset()
+            else:
+                words = stripped.strip("`").split()
+                markers = frozenset(word.lower() for word in words[1:])
+            inside = not inside
+            continue
+        if inside:
+            fence.append(ln)
+
+
 def check_scope() -> None:
     """Check 5: no PRD drags a non-DI concern into the library's API.
 
-    Two mechanical rules, chosen because they are the ones a reviewer cannot eyeball reliably:
-    * a code fence in PRDs 01-07 may import ``lauren`` only if the same fence is the guarded
-      parity shim (it mentions ``LAUREN_DI_PARITY_TARGET``);
-    * no PRD may import a web framework at all.
+    Three mechanical rules, chosen because they are the ones a reviewer cannot eyeball
+    reliably:
+
+    * a code fence in PRDs 01-07 may import ``lauren`` only if the same fence is the
+      guarded parity shim (it mentions ``LAUREN_DI_PARITY_TARGET``);
+    * a **specification** page (01-08) may not import a web framework at all: the
+      library has no HTTP vocabulary, and a sample that imports one teaches the
+      opposite;
+    * a **compatibility** page (09+) is the one place a framework import is the subject
+      rather than a leak, so it may show one -- but only inside a fence marked
+      ``fragment``/``skip`` (see :func:`_check_compatibility_fences`).
+
+    The third rule does not weaken the property the first two protect. The library's
+    zero-framework-import guarantee is enforced by ``dependencies = []`` and
+    ``tests/packaging/test_no_framework_imports.py``, which read the package; this
+    check reads the prose, and the prose is now allowed to describe a host.
     """
-    forbidden = re.compile(r"^\s*(?:from|import)\s+(starlette|fastapi|uvicorn|quart|flask)\b", re.M)
     for p in PRDS:
         name = p.name
         text = p.read_text()
-        if forbidden.search(text):
+        if name.startswith(COMPATIBILITY_PAGES):
+            _check_compatibility_fences(p)
+            continue
+        if FRAMEWORK_IMPORT.search(text):
             fail("scope", f"{name}: imports a web framework")
         if not name.startswith(("01-", "02-", "03-", "04-", "05-", "06-", "07-")):
             continue
@@ -332,7 +395,10 @@ def check_scope() -> None:
                 continue
             if inside:
                 fence.append(ln)
-    notes.append("scope: no web-framework imports; unguarded `import lauren` samples: 0")
+    notes.append(
+        "scope: specification pages import no framework; compatibility pages show one "
+        "only in fragment/skip fences; unguarded `import lauren` samples: 0"
+    )
 
 
 #: The two registry tables in ``GOALS.md``, and where each keeps the words that
