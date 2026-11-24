@@ -69,6 +69,31 @@ def test_detail_is_copied_and_json_ready() -> None:
     assert json.loads(error.as_json())["error"]["code"] == "missing_provider"
 
 
+def test_repr_names_the_leaf_and_carries_the_detail() -> None:
+    """``repr(error)`` is the debugging surface: the leaf, the sentence and the facts.
+
+    ``str`` is the human sentence alone (that is what a log line or an HTTP body
+    carries), while ``repr`` is what a traceback, a ``pytest`` assertion diff or a
+    structured logger prints when it is handed the exception *object*. Both halves
+    are pinned here: a leaf name that lost its ``detail`` reads as a bare sentence
+    in a bug report, and nothing else in the catalogue would notice.
+
+    Pinned rather than merely exercised, because the line used to be covered only
+    incidentally: ``test_c8_teardown_errors_are_reported`` builds its assertion
+    message eagerly, and that message formats ``unit.errors!r`` — so a
+    ``DestructError`` object is repr'd only on the adapters that report error
+    *objects*, which are the framework-adapted ones (the CLI driver collects
+    stderr *strings*). The gate therefore read 88.56 % with the example
+    frameworks absent and 88.61 % with them installed: a figure that depends on
+    which extras happen to be present, which is the defect
+    ``[tool.coverage.report]`` exists to avoid.
+    """
+    error = MissingProviderError("no provider", detail={"token": "Repo"})
+    assert repr(error) == "MissingProviderError('no provider', detail={'token': 'Repo'})"
+    assert str(error) == "no provider"
+    assert repr(DIError("plain")) == "DIError('plain', detail={})"
+
+
 def test_catch_all_still_catches_a_leaf() -> None:
     with pytest.raises(DIError):
         DIContainer().register(42)

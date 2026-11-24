@@ -54,3 +54,28 @@ pip install -r examples/apps/cyclopts/requirements.txt
 ```
 
 The test client is `cyclopts.App.__call__` with an explicit `argv`.
+
+## Run the app
+
+```bash
+python examples/apps/cyclopts/cyclopts_app.py ada               # 0: prints the greeting
+python examples/apps/cyclopts/cyclopts_app.py --mode fragile    # 70: scope teardown failed
+python examples/apps/cyclopts/cyclopts_app.py --mode stubborn   # 70: shutdown() teardown failed
+python examples/apps/cyclopts/cyclopts_app.py --mode boom       # 1: traceback, scope still closed
+python examples/apps/cyclopts/cyclopts_app.py --hold 10         # SIGTERM here: 143
+```
+
+## Where the close point sits
+
+cyclopts owns the process exit: it awaits the command, takes its return value as
+the exit code and calls `sys.exit` itself. That happens *after* the command
+returned, so the close point inside `with host.invocation(...)` has already run —
+including when the host raising `SystemExit(70)` is what cyclopts is exiting on.
+
+| shape | observation |
+|---|---|
+| `async def` command returning 9 | cyclopts awaits it and the process exits 9 (T14-12); Typer cannot do this |
+| `Annotated[Mailer, Inject(Mailer)]` parameter | cyclopts cannot coerce the token: it prints its error panel and exits 2 before any body (T14-09) |
+
+Because cyclopts is willing to run a loop of its own, every container call here
+goes through `CliHost` and the bridge's single long-lived loop instead.

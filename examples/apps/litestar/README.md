@@ -54,3 +54,25 @@ pip install -r examples/apps/litestar/requirements.txt
 ```
 
 The test client is `litestar.testing.TestClient`.
+
+## Measured on litestar 2.25.0
+
+Three things were measured while building this example rather than assumed, and each
+one is pinned by a test in `tests/test_litestar.py`:
+
+* **`after_response` takes one callable, not a list.** PRD 11 §5.2 shows
+  `after_response=[close_scope]`; the list form fails every request with
+  `TypeError: 'list' object is not callable`, so `hooks_only()` passes the callable
+  directly.
+* **That hook is called with the request, not the response.** The page's snippet
+  annotates it as a `Response` and reads `response.request`, which raises
+  `AttributeError: 'Request' object has no attribute 'request'`.
+* **A `def` handler runs on a worker thread.** With `sync_to_thread=True` it lands on
+  anyio's `asyncio_0`; without the flag it logs `LitestarWarning` and lands on the
+  router's portal thread. It is never `MainThread`, and the test asserts that.
+
+`TestClient` runs `on_startup` when the `with` block is entered and `on_shutdown` when
+it exits — nothing before, nothing after — so a test that builds a client without
+entering it sees a container that has not started (`T11-13`). The `/scope` route exists
+for `T11-04`: it reports what `request.state["di"]` actually holds, which is a live
+`ResolutionScope`, not `None`.

@@ -40,11 +40,53 @@ synchronous host — `SyncBridge`.
 * overrides are applied when the container is built, never to a live container
   (IC-11).
 
+## The close point, measured
+
+`TestClient` is not the instrument for this: it reads the body for you, so it
+cannot say whether teardown ran before or after the last chunk.
+`tests/test_fastapi.py` therefore calls the app directly, records every outgoing
+ASGI message in the same event log the app and its providers write to, and compares
+*positions* in that log. These are the rows it measures (PRD 10 §10.1, `T10-nn`):
+
+| Path | Measured order in the shared log | Answer |
+| --- | --- | --- |
+| lifespan start | `startup` before the first request reaches a route | 200 |
+| `GET /greet/ada` (`Depends`) | `construct` → `teardown` → `shutdown` (on exit) | 200 |
+| `GET /stream`, pure-ASGI owner | `http.response.body` ×3, each `closed=False` → `teardown` | 200 |
+| `GET /stream`, `BaseHTTPMiddleware` owner (negative control) | chunk 1 `closed=False`, chunks 2-3 `closed=True` | 200 |
+| `GET /audit` (`BackgroundTasks`) | `background closed=False` → `teardown` | 200 |
+| `GET /guarded` (handled `LookupError`) | exactly one `teardown` | 418 |
+| `GET /unhandled` (`RuntimeError`) | exactly one `teardown` | 500 |
+| `GET /teardown-fails` | `teardown-raised` → reported as `teardown-error` | 200 |
+| shutdown with a leaky singleton | `shutdown` → one `teardown-error`, reported, never raised | — |
+
+The measured conclusion: `DIScopeMiddleware.__call__`'s `finally` runs **after the
+last body chunk**, so every chunk of `/stream` is produced by a live service. The
+same route owned by `BaseHTTPMiddleware.dispatch` closes after chunk 1 — FastAPI
+adds routing, not a different ASGI contract, so the Starlette measurement carries
+over unchanged.
+
+## The two injection systems
+
+| Seam | Written as | Who resolves it |
+| --- | --- | --- |
+| route parameters | `Annotated[Greeter, Depends(greeter_dep)]` | FastAPI, calling a closure that awaits `scope.resolve` |
+| the container's graph | `Annotated[str, Inject(REQUEST_ID)]` in `Greeter.__init__` | `lauren_di` |
+| a handler-level `Inject` default | `service: Any = di.Inject(Greeter)` | nobody: FastAPI hands the handler the `_InjectMarker` (A-5), see `/inject-marker` |
+
+`app.state.di` holds the one container. `app.dependency_overrides` is FastAPI's own
+map and never touches it: overriding `greeter_dep` changes `/greet/{name}` and
+leaves `/container-greeting/{name}` — which resolves straight from the scope — on
+the real service.
+
 ## Run
 
 ```bash
 # the tests (skipped, with a reason, when FastAPI is absent)
 python -m pytest examples/apps/fastapi -q
+
+# drive the app in-process and print the measured close point (exits 0)
+python examples/apps/fastapi/fastapi_app.py
 
 # every app whose host can be installed here
 nox -s examples

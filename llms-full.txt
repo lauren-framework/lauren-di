@@ -254,6 +254,14 @@ stand in either — `Depends[T]` would then mean the wrapper rather than
 codebase annotates the resolved type, which is the same token (PRD 01
 §5.5).
 
+There is exactly **one** subscription path.  `Depends` is an
+*instance*, so `Depends[T]` dispatches to `__getitem__` on it; the
+private class is never subscripted, so it deliberately defines no
+`__class_getitem__`.  One was carried for a while and never ran — an
+unreachable branch on the single path that must stay identity-only is a
+liability, not a feature — so it was deleted rather than exercised, and
+this class is intentionally not subscriptable as a type (PRD 04 §5.2).
+
 ```python
 from lauren_di import Depends
 
@@ -695,6 +703,17 @@ Wrap any entry in `OptionalDep` to soften the resolution:
 Async factories work transparently — `lauren_di` awaits the return value
 when it's a coroutine, so an `async def` factory is just a
 factory.
+
+A generator function works here too, and `yield` is the setup/teardown
+boundary exactly as it is for an `@injectable()` generator provider
+(PRD 02 §5.8): the code before `yield` runs during the first resolve, the
+yielded value is the dependency, and the code after `yield` — typically a
+`finally` — runs when the owning lifetime ends, which is `shutdown()`
+for a singleton and scope exit for a request-scoped record. A generator
+factory cannot be `Scope.TRANSIENT`: registration raises
+`LifecycleConfigError`, because a transient instance is never
+tracked for cleanup. `register_factory` applies the same two rules, so
+the two spellings of a generator provider cannot disagree.
 
 ```python
 from lauren_di import DIContainer, use_factory

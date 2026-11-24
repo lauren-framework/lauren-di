@@ -54,3 +54,30 @@ pip install -r examples/apps/argparse/requirements.txt
 ```
 
 The test client is `argparse.ArgumentParser.parse_args` with an explicit `argv`.
+
+## Run the app
+
+```bash
+python examples/apps/argparse/argparse_app.py greet ada    # 0: prints the greeting
+python examples/apps/argparse/argparse_app.py fragile      # 70: scope teardown failed
+python examples/apps/argparse/argparse_app.py stubborn     # 70: shutdown() teardown failed
+python examples/apps/argparse/argparse_app.py boom         # 1: traceback, scope still closed
+python examples/apps/argparse/argparse_app.py              # 2: usage error, no container
+python examples/apps/argparse/argparse_app.py hold 10      # SIGTERM here: 143, scope closed
+```
+
+## Where the close point sits
+
+`main(argv)` returns the exit code instead of raising it, because argparse's own
+exit has two halves and only one of them may start a container:
+
+| exit path | what runs first |
+|---|---|
+| `parse_args` fails (`main(["prog"])`) | nothing: the code is returned as 2 and no container is built |
+| the handler returns | the scope closes and `shutdown()` runs, then `sys.exit(main())` |
+| the handler raises | the scope closes, then the traceback escapes `main` (rc 1) |
+| a teardown raises | the error is captured, one `destruct_error:` line goes to **stderr**, and the handler's `SystemExit(70)` is turned back into a return value |
+| Ctrl-C / SIGTERM | `KeyboardInterrupt` / `Terminated` unwinds the `finally` and is returned as 130 / 143 |
+
+`main` takes the *full* argv (program name included), which is why
+`main(["prog"])` means "prog with no command" — the T14-01 usage error.

@@ -4,4 +4,13 @@
 # versions `nox -s examples` installs. `lauren_di` itself stays dependency-free
 # (PRD 01 §6.2) — this file is the *example's* dependency list, not the
 # library's, and it is never referenced from `pyproject.toml`.
+#
+# `click` is pinned too, and deliberately: Typer does not constrain it, but the
+# behaviour T14-08 pins — an injected parameter becoming a positional argument
+# and failing with exit 2 — is Click's argument parsing, not Typer's build step.
+# Left unpinned, the same `typer==0.29.2` measured differently depending on which
+# Click the shared `examples` venv resolved, and the test recorded a
+# `RuntimeError` that no installed version raises. The Click pin is the same one
+# `examples/apps/click/requirements.txt` uses, so the two apps in one venv agree.
 typer==0.29.2
+click==8.5.1

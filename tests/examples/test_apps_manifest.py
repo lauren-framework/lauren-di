@@ -242,3 +242,59 @@ def test_every_test_module_is_skip_guarded_through_the_helper() -> None:
         "these test modules do not guard themselves with `_testing.require(<distribution>)` "
         f"(or they use `importorskip`, which a local directory can satisfy): {unguarded}"
     )
+
+
+def test_the_parent_index_names_every_app_with_its_family_and_prd() -> None:
+    """``examples/README.md`` is where a reader starts; ``apps/`` must be reachable from it.
+
+    Before this test the parent index documented the eleven standalone scripts and
+    said nothing about ``apps/``, so sixteen runnable applications were one
+    directory away from the page that indexes the directory. The row is checked in
+    *both* directions — every app has a row, and every ``apps/<name>/README.md``
+    link on the page belongs to an app the manifest names — so an app added to one
+    index and not the other fails here rather than reading as an absence.
+    """
+    index = (ROOT / "examples" / "README.md").read_text(encoding="utf-8")
+    rows = {
+        line: line for line in index.splitlines() if line.startswith("| [") and "](apps/" in line
+    }
+
+    missing: list[str] = []
+    for name, entry in manifest().items():
+        link = f"](apps/{name}/README.md)"
+        row = next((line for line in rows if link in line), None)
+        if row is None:
+            missing.append(f"{name}: no row linking {link[2:-1]}")
+            continue
+        cells = [cell.strip() for cell in row.strip().strip("|").split("|")]
+        if len(cells) < 4:
+            missing.append(f"{name}: row has {len(cells)} cell(s), expected 4: {row}")
+            continue
+        family, prd = cells[1].lower(), cells[2]
+        if family != entry["family"]:
+            missing.append(
+                f"{name}: row says family {cells[1]!r}, apps.json says {entry['family']!r}"
+            )
+        if prd != entry["prd"]:
+            missing.append(f"{name}: row cites PRD {prd}, apps.json cites PRD {entry['prd']}")
+        if not cells[3]:
+            missing.append(
+                f"{name}: the close-point cell is empty, so the row states no obligation"
+            )
+
+    assert not missing, (
+        "examples/README.md does not index the host apps it sits above:\n  " + "\n  ".join(missing)
+    )
+
+    linked = {line.split("](apps/", 1)[1].split("/", 1)[0] for line in rows}
+    unknown = sorted(linked - set(manifest()))
+    assert not unknown, f"examples/README.md links app(s) the manifest does not name: {unknown}"
+
+    assert "(apps/README.md)" in index, (
+        "examples/README.md no longer links the apps index (examples/apps/README.md)"
+    )
+    count_word = {11: "eleven", 16: "sixteen"}.get(len(manifest()), str(len(manifest())))
+    assert f"## The {count_word} host apps" in index, (
+        f"examples/README.md's section heading no longer states the number of apps "
+        f"({count_word}): a reader cannot tell a complete index from a truncated one"
+    )

@@ -54,3 +54,28 @@ pip install -r examples/apps/fire/requirements.txt
 ```
 
 The test client is calling the exposed function directly with an explicit argument list.
+
+## Run the app
+
+```bash
+python examples/apps/fire/fire_app.py greet ada            # 0: prints message + lifecycle
+python examples/apps/fire/fire_app.py fragile              # 70: scope teardown failed
+python examples/apps/fire/fire_app.py stubborn             # 70: shutdown() teardown failed
+python examples/apps/fire/fire_app.py boom                 # 1: traceback, scope still closed
+python examples/apps/fire/fire_app.py hold 10              # SIGTERM here: 143
+```
+
+## Where the close point sits
+
+Fire prints whatever the command returns, and it prints it *after* the function
+returned. The close point therefore sits inside the function, and the value Fire
+prints is built after it: `greet` returns `{"message": ..., "closed":
+"mailer.stopped"}`, so the printed output is evidence that the scope and the
+container were already shut down. Fire is also the host that keeps a raise:
+
+| exit path | what runs first |
+|---|---|
+| the function returns | the scope closes, `shutdown()` runs, *then* Fire prints |
+| the function raises | the scope closes, then Fire prints the traceback (rc 1) |
+| a teardown raises | the error is captured, one `destruct_error:` line goes to **stderr**, and `SystemExit(70)` escapes Fire |
+| Ctrl-C / SIGTERM | `KeyboardInterrupt` / `Terminated` unwinds the `finally` (rc 130 / 143) |

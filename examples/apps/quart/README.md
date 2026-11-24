@@ -54,3 +54,22 @@ pip install -r examples/apps/quart/requirements.txt
 ```
 
 The test client is `quart.testing.QuartClient`.
+
+## Measured on quart 0.23.1
+
+* **`teardown_request` is not a close point.** A three-chunk streamed body measures
+  `unit:open`, `unit:close`, `chunk:0`, `chunk:1`, `chunk:2` — every chunk is produced
+  by an already-disposed unit. `create_app(teardown_owner=True)` installs exactly that
+  owner so `tests/test_quart.py` can assert the trap (`T11-06`), and it installs no
+  ASGI wrapper: the point is that something else is doing the closing.
+* **`test_client()` runs no serving hook.** `before_serving`/`after_serving` never fire
+  for `app.test_client()`, which is why the tests and the demo bracket their requests
+  with `quart_di.startup(app)` / `quart_di.shutdown(app)` — those are thin wrappers over
+  `app.startup()` / `app.shutdown()`, exactly what a server calls (`QRT-5`, `T11-13`).
+  `QuartClient` supports `async with` only.
+* **The wrapper closes after the body and after the background task.** Measured order
+  on `/stream`: `chunk:0..2`, `background:closed=False`, `unit:close` — four
+  `http.response.body` messages had crossed the seam at close time.
+* **A `def` view runs on `asyncio_0`**, never `MainThread` (`T11-12`).
+* **`current_scope()` outside a request is a diagnosis, not an `AttributeError`.** It
+  turns Quart's "Not within an app context" into the message naming `quart_di.install`.

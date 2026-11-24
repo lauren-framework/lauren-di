@@ -47,6 +47,7 @@ nav:
       - Scopes and lifecycle: guides/scopes.md
       - Custom providers and tokens: guides/custom-providers.md
       - Testing and overrides: guides/testing.md
+      - Hosting in a framework: guides/hosting.md
   - Recipes: recipes.md
   - Module visibility: visibility.md
   - Errors: errors.md

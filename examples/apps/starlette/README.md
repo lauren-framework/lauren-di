@@ -40,11 +40,39 @@ The lifespan handler runs `container.startup()` and `container.shutdown()`.
 * overrides are applied when the container is built, never to a live container
   (IC-11).
 
+## The close point, measured
+
+`TestClient` is not the instrument for this: it reads the body for you, so it
+cannot say whether teardown ran before or after the last chunk. `tests/test_starlette.py`
+therefore calls the app directly, records every outgoing ASGI message in the same
+event log the app and its providers write to, and compares *positions* in that log.
+These are the rows it measures (PRD 10 §10.1, `T10-nn`), all reproduced by this app:
+
+| Path | Measured order in the shared log | Answer |
+| --- | --- | --- |
+| lifespan start | `startup` before the first request reaches a route | 200 |
+| `GET /greet/ada` | `construct` → `teardown` → `shutdown` (on exit) | 200 |
+| `GET /stream`, pure-ASGI owner | `http.response.body` ×3, each `closed=False` → `teardown` | 200 |
+| `GET /stream`, `BaseHTTPMiddleware` owner (negative control) | chunk 1 `closed=False`, chunks 2-3 `closed=True` | 200 |
+| `GET /audit` (background task) | `background closed=False` → `teardown` | 200 |
+| `GET /guarded` (handled `LookupError`) | exactly one `teardown` | 418 |
+| `GET /unhandled` (`RuntimeError`) | exactly one `teardown` | 500 |
+| `GET /teardown-fails` | `teardown-raised` → reported as `teardown-error` | 200 |
+| shutdown with a leaky singleton | `shutdown` → one `teardown-error`, reported, never raised | — |
+
+The measured conclusion: `DIScopeMiddleware.__call__`'s `finally` runs **after the
+last body chunk**, so every chunk of `/stream` is produced by a live service. The
+same route owned by `BaseHTTPMiddleware.dispatch` closes after chunk 1, which is
+why this app never uses it for ownership.
+
 ## Run
 
 ```bash
 # the tests (skipped, with a reason, when Starlette is absent)
 python -m pytest examples/apps/starlette -q
+
+# drive the app in-process and print the measured close point (exits 0)
+python examples/apps/starlette/starlette_app.py
 
 # every app whose host can be installed here
 nox -s examples

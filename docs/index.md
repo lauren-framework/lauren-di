@@ -48,6 +48,7 @@ without becoming a dependency of this library.
 - [Scopes and lifecycle](guides/scopes.md) — the part that bites.
 - [Custom providers and tokens](guides/custom-providers.md) — non-class bindings and `list[T]`.
 - [Testing and overrides](guides/testing.md) — per-build substitution and fixtures.
+- [Hosting in a framework](guides/hosting.md) — the host-adapter contract.
 - [Recipes](recipes.md) — task-shaped, complete wiring for common jobs.
 - [Module visibility](visibility.md) — opt-in encapsulation.
 - [Errors](errors.md) — the full catalogue.

@@ -54,3 +54,32 @@ pip install -r examples/apps/click/requirements.txt
 ```
 
 The test client is `click.testing.CliRunner`.
+
+## Run the app
+
+```bash
+python examples/apps/click/click_app.py greet ada    # 0: prints the greeting
+python examples/apps/click/click_app.py fragile      # 70: scope teardown failed
+python examples/apps/click/click_app.py stubborn     # 70: shutdown() teardown failed
+python examples/apps/click/click_app.py boom         # 1: traceback, scope still closed
+python examples/apps/click/click_app.py              # 2: usage error, no container
+python examples/apps/click/click_app.py hold 10      # SIGTERM here: 143, scope closed
+```
+
+## Where the close point sits
+
+The command body owns the whole adapter: `with host.invocation(...)` starts the
+container, opens the one unit, and closes it in a `finally`. Every way click can
+leave a command therefore meets the close point *before* click acts on it:
+
+| exit path | what runs first |
+|---|---|
+| the body returns | the scope closes, then click exits 0 |
+| the body raises | the scope closes, then click reports the traceback (rc 1) |
+| a teardown raises | the scope closes, the error is captured in `scope.errors`, one `destruct_error:` line goes to **stderr**, and the host raises `SystemExit(70)` |
+| a usage error | `parse_args` fails before the body, so no container is built at all |
+| Ctrl-C / SIGTERM | `KeyboardInterrupt` / `Terminated` unwinds the `finally` (rc 130 / 143) |
+
+`result.output` mixes stdout and stderr in click 8.5, so `tests/test_click.py`
+asserts on `result.stdout` and `result.stderr` separately — a teardown failure
+must never appear in the command's own output.

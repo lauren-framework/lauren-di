@@ -54,3 +54,32 @@ pip install -r examples/apps/typer/requirements.txt
 ```
 
 The test client is `typer.testing.CliRunner`.
+
+## Run the app
+
+```bash
+python examples/apps/typer/typer_app.py ada                 # 0: prints the greeting
+python examples/apps/typer/typer_app.py --mode fragile      # 70: scope teardown failed
+python examples/apps/typer/typer_app.py --mode stubborn     # 70: shutdown() teardown failed
+python examples/apps/typer/typer_app.py --mode boom         # 1: traceback, scope still closed
+python examples/apps/typer/typer_app.py --hold 10           # SIGTERM here: 143
+```
+
+A single-command `Typer` app collapses, so `invoke(app, [])` runs the body
+(T14-15); the command takes a NAME argument plus `--mode`/`--hold` instead of
+sub-commands.
+
+## Where the close point sits
+
+Typer wraps click, so the body is the click one and the exit paths are identical:
+the scope closes inside `with host.invocation(...)`, before Typer's `SystemExit`.
+Two Typer-specific rows matter:
+
+* **A command must be declared `def`.** Typer calls an `async def` command and
+  drops the coroutine, so the body never runs and the process still exits 0
+  (T14-04). `build_async_app()` is that shape, kept for the test.
+* **A parameter must not be a DI token.** `Annotated[Mailer, Inject(Mailer)]` is
+  bound as a CLI parameter, and Typer 0.29.2 raises `RuntimeError: Type not yet
+  supported` while it builds the command (T14-08). PRD 14 records exit 2 with
+  `{mailer}` in the usage line; the installed version fails earlier, and
+  `build_annotated_app()` pins that behaviour instead of pretending otherwise.
