@@ -776,9 +776,9 @@ def prd_blocks() -> list[tuple[Path, object]]:
 def check_blocks() -> None:
     """Check 6: every python block in the PRDs compiles, and carries a marker.
 
-    The corpus holds 88 python blocks and, before this check, no gate read one:
-    ``scripts/check_docs_contract.py``'s source list has no ``prds/`` page, this
-    module parsed prose and tables but never a block, and
+    When this check was written the corpus held 88 python blocks and no gate read
+    one: ``scripts/check_docs_contract.py``'s source list has no ``prds/`` page,
+    this module parsed prose and tables but never a block, and
     ``tests/docs/test_prd_examples.py`` covered two sections. A block with a
     plain ``SyntaxError`` — or with a member the library does not ship, which is
     how PRD 03's ``scope.teardown_errors`` survived a whole gate set — therefore
