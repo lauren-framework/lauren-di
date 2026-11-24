@@ -161,7 +161,6 @@ def boom() -> dict[str, object]:
     with host.invocation(values={REQUEST_ID: "boom"}) as unit:
         _greeter(host, unit)
         raise RuntimeError("the command body failed")
-    return {}  # pragma: no cover - unreachable
 
 
 def interrupt() -> dict[str, object]:
@@ -170,7 +169,6 @@ def interrupt() -> dict[str, object]:
     with host.invocation(values={REQUEST_ID: "interrupt"}) as unit:
         _greeter(host, unit)
         raise KeyboardInterrupt
-    return {}  # pragma: no cover - unreachable
 
 
 def hold(seconds: float = 5.0) -> dict[str, object]:

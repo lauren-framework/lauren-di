@@ -313,7 +313,6 @@ class _QuietHandler(wsgiref.simple_server.WSGIRequestHandler):
 
     def log_message(self, format: str, *args: Any) -> None:
         """Drop the server's access log."""
-        del format, args
 
 
 @contextlib.contextmanager

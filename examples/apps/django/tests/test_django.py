@@ -910,7 +910,7 @@ def test_t13_16_the_client_is_not_a_threaded_server() -> None:
         """Keep the test's output about the container, not about access logs."""
 
         def log(self, *args: Any, **kwargs: Any) -> None:
-            del args, kwargs
+            """Drop werkzeug's access log."""
 
     token = django_app.MARKER.set("clean")
     try:

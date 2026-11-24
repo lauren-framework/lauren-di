@@ -65,7 +65,6 @@ def test_boot_hook_starts_the_container_before_the_first_request() -> None:
 
 def test_stop_hook_shuts_the_container_down_once() -> None:
     """T11-02 / IC-9: one ``@pre_destruct``; ``shutdown()`` returned ``()``."""
-    built = litestar_app.create_app()
     reported: list[Any] = []
     built = litestar_app.create_app(report=reported.extend)
     with TestClient(built.app) as client:

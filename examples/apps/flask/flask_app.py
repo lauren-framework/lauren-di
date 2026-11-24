@@ -229,6 +229,8 @@ def main() -> None:
     try:
         server.serve_forever()
     except KeyboardInterrupt:
+        # Ctrl-C is how the demo stops: fall through to the teardown below rather
+        # than letting the traceback replace the shutdown tuple.
         pass
     finally:
         BRIDGE.run(CONTAINER.shutdown())

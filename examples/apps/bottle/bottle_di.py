@@ -94,15 +94,22 @@ class _ClosingIterable:
         self._close = close
         self._closed = False
 
-    def __iter__(self) -> Iterator[bytes]:
-        """Iterate the wrapped body lazily, one chunk at a time."""
-        if self._iterator is None:
-            self._iterator = iter(self._iterable)
-        return self._iterator
+    def __iter__(self) -> _ClosingIterable:
+        """Return this wrapper, which is its own iterator (the iteration protocol).
+
+        ``__next__`` exists on this class, and a class with ``__next__`` whose
+        ``__iter__`` returns something else is an iterator that lies about itself:
+        ``iter(response) is not response``. Returning ``self`` keeps ``for chunk in
+        response``, ``next(response)`` and ``iter(response)`` all reading the one
+        lazily created inner iterator.
+        """
+        return self
 
     def __next__(self) -> bytes:
-        """Return the next chunk, so ``next(response)`` works like ``for``."""
-        return next(iter(self))
+        """Return the next chunk of the wrapped body, starting it on first use."""
+        if self._iterator is None:
+            self._iterator = iter(self._iterable)
+        return next(self._iterator)
 
     def close(self) -> None:
         """Close the body first and the unit second, exactly once (IC-7)."""

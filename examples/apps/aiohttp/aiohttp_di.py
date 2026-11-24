@@ -129,9 +129,12 @@ async def unit_of_work(
     errors = await unit.close()
     request.app[CLOSES].append(Closed(path=request.path, after_body=after_body, errors=errors))
     if not after_body:
+        # Deliberately no ``request.path`` here: it is client-controlled, and a
+        # path with a newline in it can forge a second log line (log injection).
+        # The fixed message is what an operator greps for; the path is in the
+        # request's own access log, where the server escapes it.
         LOGGER.warning(
-            "%s returned an unwritten response: the unit closed before aiohttp wrote "
-            "the body (AIO-3). Own the body in the handler instead.",
-            request.path,
+            "a handler returned an unwritten response: the unit closed before aiohttp "
+            "wrote the body (AIO-3). Own the body in the handler instead."
         )
     return response

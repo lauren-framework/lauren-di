@@ -157,7 +157,6 @@ def _boom(args: argparse.Namespace) -> int:
     with host.invocation(values={REQUEST_ID: "boom"}) as unit:
         _greeter(host, unit)
         raise RuntimeError("the command body failed")
-    return 0
 
 
 def _interrupt(args: argparse.Namespace) -> int:
@@ -166,7 +165,6 @@ def _interrupt(args: argparse.Namespace) -> int:
     with host.invocation(values={REQUEST_ID: "interrupt"}) as unit:
         _greeter(host, unit)
         raise KeyboardInterrupt
-    return 0
 
 
 def _hold(args: argparse.Namespace) -> int:

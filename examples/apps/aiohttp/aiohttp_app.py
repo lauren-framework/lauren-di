@@ -24,7 +24,6 @@ import asyncio
 import json
 import threading
 from dataclasses import dataclass
-from itertools import count
 from typing import Annotated
 from uuid import uuid4
 
@@ -41,8 +40,6 @@ from lauren_di import (
     post_construct,
     pre_destruct,
 )
-
-_NAMES = count(1)
 
 
 @injectable()
