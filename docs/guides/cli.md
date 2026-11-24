@@ -36,7 +36,8 @@ the user hits Ctrl-C — the container still has to stop.
 One helper carries the contract for every host. Each recipe below is a thin
 wrapper around it:
 
-```python fragment
+<!-- docs-contract: fragment -->
+```python
 import asyncio
 import sys
 from collections.abc import Awaitable, Callable
@@ -94,7 +95,8 @@ of the host.
 
 ### argparse: the exit code needs `SystemExit`
 
-```python fragment
+<!-- docs-contract: fragment -->
+```python
 import argparse
 import asyncio
 
@@ -125,7 +127,8 @@ clean exit.
 
 ### click: the container in `ctx.obj`, the code in `ctx.exit`
 
-```python fragment
+<!-- docs-contract: fragment -->
+```python
 import asyncio
 
 import click
@@ -166,7 +169,8 @@ exits `0`.
 
 ### Typer: a `def` command, and no injected parameters
 
-```python fragment
+<!-- docs-contract: fragment -->
+```python
 import asyncio
 
 import typer
@@ -220,7 +224,8 @@ behaviour.
 
 ### cyclopts: the only host that awaits the command
 
-```python fragment
+<!-- docs-contract: fragment -->
+```python
 import cyclopts
 from lauren_di import DIContainer
 
@@ -243,7 +248,8 @@ would nest a second loop inside the one already running the command.
 
 ### fire: `Fire` returns, it does not exit
 
-```python fragment
+<!-- docs-contract: fragment -->
+```python
 import asyncio
 
 import fire

@@ -31,7 +31,8 @@ build it in a fixture, hand it to a container, build again — it is not consume
 the container's scope, `factory` calls a callable with the tokens in `injects`,
 `existing` re-points the token, and `values` supplies a multi-binding's rows.
 
-```python run
+<!-- docs-contract: run -->
+```python
 from lauren_di import DIContainer, OverridePlan, ProviderOverride, Token, use_value
 
 CLOCK = Token("clock")
@@ -60,7 +61,8 @@ wants when it overrides tokens only some tests register. The build succeeds,
 `applied_overrides()` omits the token, and resolving it behaves as if nothing was
 registered (`MissingProviderError`).
 
-```python fragment
+<!-- docs-contract: fragment -->
+```python
 plan = OverridePlan(
     providers={CLOCK: ProviderOverride(CLOCK, "value", value="2024-01-01", optional=True)}
 )
@@ -72,7 +74,8 @@ plan = OverridePlan(
 container — a framework entrypoint, a factory you do not own — wrap the
 construction:
 
-```python run
+<!-- docs-contract: run -->
+```python
 from lauren_di import DIContainer, OverridePlan, ProviderOverride, Token, building_with, use_value
 
 CLOCK = Token("clock")
@@ -99,7 +102,8 @@ container the callback put on `ctx.obj`. So the test wraps the *invocation*, not
 the assertions — the `with` block has to be open at the moment the callback
 constructs the container.
 
-```python fragment
+<!-- docs-contract: fragment -->
+```python
 import asyncio
 
 import click
@@ -183,7 +187,8 @@ Two containers built from one plan share no instances: singletons and the `class
 and `factory` kinds are per-container. What they share is whatever you handed over
 by reference, plus everything the container never owned.
 
-```python run
+<!-- docs-contract: run -->
+```python
 from lauren_di import DIContainer, OverridePlan, ProviderOverride, Token, injectable, use_value
 
 SETTINGS = Token("settings")
@@ -216,7 +221,8 @@ Not isolated, however you build:
 
 One plan per test, a build function, and no module-level container:
 
-```python fragment
+<!-- docs-contract: fragment -->
+```python
 import pytest
 
 from lauren_di import OverridePlan, ProviderOverride, Token
@@ -236,7 +242,8 @@ own container.
 Before — the assertion reads state the collaborator keeps at module level, so it
 depends on what earlier tests did:
 
-```python run
+<!-- docs-contract: run -->
+```python
 from lauren_di import DIContainer, injectable
 
 sent: list[str] = []
@@ -256,7 +263,8 @@ assert sent == ["a@example.com"]
 After — the collaborator is an override, so the test owns the recording and the
 real sender is never constructed:
 
-```python run
+<!-- docs-contract: run -->
+```python
 from lauren_di import DIContainer, OverridePlan, ProviderOverride, injectable
 
 class RecordingEmail:

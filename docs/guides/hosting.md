@@ -228,7 +228,8 @@ whose `aclose()` has already run.
 A host object — a request, a job context, a connection the framework owns — is
 supplied as a **value**, never registered as a provider:
 
-```python fragment
+<!-- docs-contract: fragment -->
+```python
 from lauren_di import DIContainer, Token
 
 REQUEST = Token("REQUEST")
@@ -407,7 +408,8 @@ one; it has to read the tuple.
 
 An override is a build-time decision, so a host test builds its own container:
 
-```python fragment
+<!-- docs-contract: fragment -->
+```python
 from lauren_di import DIContainer, OverridePlan, ProviderOverride
 
 plan = OverridePlan({Repo: ProviderOverride(Repo, "value", value=RecordingRepo())})
@@ -435,7 +437,8 @@ Three rules, each of them measured (PRD 10 §5.4):
 
 The shape, with the framework names replaced by the seam:
 
-```python fragment
+<!-- docs-contract: fragment -->
+```python
 async def __call__(self, scope, receive, send):
     if scope["type"] not in ("http", "websocket"):
         await self.app(scope, receive, send)
@@ -492,7 +495,8 @@ point.
 One wrapper is enough for every WSGI framework, because the close point is the
 response iterable rather than a framework hook:
 
-```python fragment
+<!-- docs-contract: fragment -->
+```python
 class DIMiddleware:
     """WSGI wrapper: one scope per request, closed when the body ends."""
 
