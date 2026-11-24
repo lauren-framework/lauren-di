@@ -50,7 +50,7 @@ python -m pytest examples/apps/litestar -q
 nox -s examples
 
 # install the host this app pins
-pip install -r examples/apps/litestar/requirements.txt
+pip install -c examples/apps/constraints.txt -r examples/apps/litestar/requirements.txt
 ```
 
 The test client is `litestar.testing.TestClient`.

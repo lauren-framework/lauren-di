@@ -50,7 +50,7 @@ python -m pytest examples/apps/fire -q
 nox -s examples
 
 # install the host this app pins
-pip install -r examples/apps/fire/requirements.txt
+pip install -c examples/apps/constraints.txt -r examples/apps/fire/requirements.txt
 ```
 
 The test client is calling the exposed function directly with an explicit argument list.

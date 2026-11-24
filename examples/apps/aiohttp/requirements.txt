@@ -5,3 +5,7 @@
 # (PRD 01 §6.2) — this file is the *example's* dependency list, not the
 # library's, and it is never referenced from `pyproject.toml`.
 aiohttp==3.14.5
+# `multidict` is pinned too: the example builds `web.StreamResponse(headers=...)`
+# and the AIO cases measure what the adapter sees at write time, so the header
+# multimap that carries those headers is part of the measurement.
+multidict==6.9.1

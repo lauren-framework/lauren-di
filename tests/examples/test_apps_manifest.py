@@ -16,17 +16,27 @@ manifest the ``examples`` nox session also reads — and asserts, for every entr
 * the tests are skip-guarded through ``_testing.require`` with the host's
   distribution name (D-62: SKIP without the package, PASS with it);
 * nothing is named in a way that could shadow an installed host: no
-  ``__init__.py`` in an app directory, and module names unique across apps.
+  ``__init__.py`` in an app directory, and module names unique across apps;
+* the dependency resolution is recorded and holds: every app's pins agree with
+  ``examples/apps/constraints.txt``, no distribution is pinned at two versions in
+  one shared venv, and -- when the hosts are installed -- each app's
+  ``Requires-Dist`` closure is pinned exactly. Pinning the hosts was not enough:
+  the T14-08 failure was an unpinned Click that Typer does not constrain, so a
+  green test recorded a behaviour no single installed version produced.
 
 None of it imports a framework, so the check runs in the ordinary suite on an
-interpreter with no host installed.
+interpreter with no host installed; the resolution checks need the hosts'
+metadata, so they skip there with that reason rather than passing vacuously.
 """
 
 from __future__ import annotations
 
+import importlib.util
 import json
 import pathlib
 import re
+import sys
+from types import ModuleType
 
 import pytest
 
@@ -298,3 +308,170 @@ def test_the_parent_index_names_every_app_with_its_family_and_prd() -> None:
         f"examples/README.md's section heading no longer states the number of apps "
         f"({count_word}): a reader cannot tell a complete index from a truncated one"
     )
+
+
+def _load_pins() -> ModuleType:
+    """Load ``examples/apps/_pins.py`` the way the other contract tests load helpers.
+
+    Imported by path rather than by name: ``examples/apps`` is app *data* for the
+    manifest, not a package on the suite's path, and giving it an ``__init__.py``
+    would make an app directory importable (which
+    ``test_no_app_directory_is_importable_as_a_package`` forbids).
+    """
+    spec = importlib.util.spec_from_file_location("examples_apps_pins", APPS / "_pins.py")
+    assert spec is not None and spec.loader is not None
+    module = importlib.util.module_from_spec(spec)
+    sys.modules[spec.name] = module
+    spec.loader.exec_module(module)
+    return module
+
+
+@pytest.fixture(scope="module")
+def pins() -> ModuleType:
+    return _load_pins()
+
+
+def _installed_hosts(pins: ModuleType) -> list[str]:
+    """The apps whose own pins are installed in this interpreter."""
+    return [
+        app for app in pins.app_names() if any(pins.installed(name) for name in pins.app_pins(app))
+    ]
+
+
+def _not_the_recorded_environment(pins: ModuleType) -> list[str]:
+    """Pinned distributions this interpreter has at another version, if any.
+
+    A contributor's interpreter with Flask 3.0 installed is not the resolution the
+    examples were measured on, and saying so is a skip, not a failure: the plain
+    suite must stay runnable without the hosts at all. The hard version check
+    belongs where the resolution is *made* -- ``_pins.py --verify`` inside
+    ``nox -s examples`` -- which fails the session rather than a test.
+    """
+    return [
+        f"{name}=={version} is pinned, {seen} is installed"
+        for name, version in sorted(pins.constraints().items())
+        if (seen := pins.installed(name)) is not None and seen != version
+    ]
+
+
+def test_every_app_pin_is_the_one_the_shared_constraints_record(pins: ModuleType) -> None:
+    """An app pin and the shared resolution are the same claim, so they must agree.
+
+    ``constraints.txt`` is what ``nox -s examples`` installs with. An app that
+    pins a version the constraint file does not record is either a typo or two
+    versions of one distribution in one venv, and pip resolves that silently by
+    installing whichever it saw last.
+    """
+    recorded = pins.constraints()
+    missing: list[str] = []
+    conflicting: list[str] = []
+    for app in pins.app_names():
+        for name, version in sorted(pins.app_pins(app).items()):
+            if name not in recorded:
+                missing.append(f"examples/apps/{app}/requirements.txt: {name}=={version}")
+            elif recorded[name] != version:
+                conflicting.append(
+                    f"examples/apps/{app}/requirements.txt says {name}=={version}, "
+                    f"constraints.txt says {name}=={recorded[name]}"
+                )
+
+    assert not missing, (
+        "these app pins are absent from examples/apps/constraints.txt, so the session "
+        "would install whatever the index offers:\n  " + "\n  ".join(missing)
+    )
+    assert not conflicting, (
+        "these app pins disagree with examples/apps/constraints.txt:\n  "
+        + "\n  ".join(conflicting)
+        + "\n  regenerate with `python examples/apps/_pins.py --write` in the venv that "
+        "installed the hosts"
+    )
+
+
+def test_no_distribution_is_pinned_at_two_versions(pins: ModuleType) -> None:
+    """The shared venv holds one version of each distribution, so the apps must agree.
+
+    This is the T14-08 defect stated as a property: Typer did not constrain Click,
+    the shared venv's Click decided whether an injected parameter raised at build
+    time or became a positional argument, and the test recorded a behaviour no
+    single installed version produced.
+    """
+    versions: dict[str, dict[str, list[str]]] = {}
+    for app in pins.app_names():
+        for name, version in pins.app_pins(app).items():
+            versions.setdefault(name, {}).setdefault(version, []).append(app)
+
+    conflicts = {name: by_version for name, by_version in versions.items() if len(by_version) > 1}
+
+    assert not conflicts, "the apps pin one distribution at several versions: " + "; ".join(
+        f"{name} = "
+        + ", ".join(
+            f"{version} ({', '.join(sorted(apps))})" for version, apps in sorted(by_version.items())
+        )
+        for name, by_version in sorted(conflicts.items())
+    )
+
+
+def test_the_recorded_resolution_is_the_installed_one(pins: ModuleType) -> None:
+    """What the constraints describe is what the interpreted host code actually is.
+
+    Unlike the checks above this one needs the hosts installed: it walks each
+    app's ``Requires-Dist`` graph *from the installed metadata*, so a transitive
+    the constraint file does not pin is reported here -- which is exactly the
+    unpinned-Click shape. A checkout with no host installed skips with that
+    reason rather than passing vacuously.
+    """
+    if not _installed_hosts(pins):
+        pytest.skip(
+            "no host distribution is installed in this interpreter, so the resolved "
+            "closure cannot be read; `nox -s examples` is where this is measured"
+        )
+    drifted = _not_the_recorded_environment(pins)
+    if drifted:
+        pytest.skip(
+            "this interpreter is not the recorded resolution, so its metadata cannot "
+            "confirm it: " + "; ".join(drifted[:4]) + (" …" if len(drifted) > 4 else "")
+        )
+
+    found = pins.problems(require_installed=True)
+
+    assert not found, "the recorded resolution and the venv disagree:\n  " + "\n  ".join(found)
+
+
+def test_resolving_the_apps_twice_in_either_order_gives_the_same_pins(
+    pins: ModuleType,
+) -> None:
+    """A resolution that depends on the order it is walked in is not a resolution.
+
+    ``Requires-Dist`` graphs are walked depth-first from each app's pins; a
+    resolution that changes when the apps are visited backwards would mean the
+    pinned set is an artefact of traversal rather than of what is installed.
+    """
+    if not _installed_hosts(pins):
+        pytest.skip("no host distribution is installed, so there is nothing to resolve")
+    drifted = _not_the_recorded_environment(pins)
+    if drifted:
+        pytest.skip(
+            "this interpreter is not the recorded resolution, so a walk of its metadata "
+            "would describe a different venv: " + "; ".join(drifted[:4])
+        )
+
+    forward = {app: pins.closure(pins.app_pins(app)) for app in pins.app_names()}
+    backward = {app: pins.closure(pins.app_pins(app)) for app in reversed(pins.app_names())}
+
+    assert forward == backward, (
+        "resolving the apps in reverse order produced a different set of versions"
+    )
+    recorded = pins.constraints()
+    for app, (reached, unresolved) in sorted(forward.items()):
+        assert not unresolved, (
+            f"{app} pins {unresolved}, which is not installed — the closure of an absent "
+            "distribution cannot be checked, so the venv is not the recorded one"
+        )
+        disagreeing = {
+            name: (version, recorded.get(name))
+            for name, version in reached.items()
+            if recorded.get(name) != version
+        }
+        assert not disagreeing, (
+            f"{app} reaches versions examples/apps/constraints.txt does not record: {disagreeing}"
+        )

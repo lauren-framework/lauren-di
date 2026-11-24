@@ -50,7 +50,7 @@ python -m pytest examples/apps/cyclopts -q
 nox -s examples
 
 # install the host this app pins
-pip install -r examples/apps/cyclopts/requirements.txt
+pip install -c examples/apps/constraints.txt -r examples/apps/cyclopts/requirements.txt
 ```
 
 The test client is `cyclopts.App.__call__` with an explicit `argv`.

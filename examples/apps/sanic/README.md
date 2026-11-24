@@ -51,7 +51,10 @@ hypercorn sanic_app:asgi --bind 127.0.0.1:8000   # any ASGI server will do
 ```
 
 `requirements.txt` deliberately pins only `sanic` and `sanic-testing`: the example itself
-needs no ASGI server, because the self-check below *is* the ASGI seam.
+needs no ASGI server, because the self-check below *is* the ASGI seam. What those two
+drag in — `websockets`, `httptools`, `uvloop`, `sanic-routing` — is pinned one directory
+up in [`../constraints.txt`](../constraints.txt), because that is what the ASGI seam is
+exercised through.
 
 ## Files
 

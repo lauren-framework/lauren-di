@@ -63,6 +63,11 @@ dev = [
     "nox>=2024.4.15",
     # ``tests/packaging/`` builds the wheel, using the project's own builder.
     "build>=1.2",
+    # ``examples/apps/_pins.py`` reads ``Requires-Dist`` and evaluates its markers
+    # to record the examples' dependency closure. ``pytest`` pulls ``packaging`` in
+    # transitively, and relying on that would repeat the defect that file exists to
+    # remove: an unpinned dependency deciding what a check means.
+    "packaging>=23.2",
 ]
 release = [
     "build>=1.2",

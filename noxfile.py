@@ -50,6 +50,10 @@ SCRIPTS_DIR = ROOT / "scripts"
 #: suite checks and this file reads, so a new app is one entry, not two edits.
 EXAMPLES_APPS_DIR = ROOT / "examples" / "apps"
 EXAMPLES_MANIFEST = EXAMPLES_APPS_DIR / "apps.json"
+#: Every app's pins *and* the closure they resolve to, recorded once so the venv
+#: that runs the examples cannot float underneath the tests it green-lights.
+EXAMPLES_CONSTRAINTS = EXAMPLES_APPS_DIR / "constraints.txt"
+EXAMPLES_PINS = EXAMPLES_APPS_DIR / "_pins.py"
 DOCS_DIR = ROOT / "docs"
 SITE_DIR = ROOT / "site"
 DIST_DIR = ROOT / "dist"
@@ -194,8 +198,22 @@ def examples(session: nox.Session) -> None:
     install here is reported as a skip with a reason instead of a green run that
     measured nothing -- the failure mode this session exists to prevent is a
     framework sample that never executed.
+
+    The install is constrained by ``examples/apps/constraints.txt``, the recorded
+    closure of every app's requirements, and then *verified* against it before
+    the suite runs. Pinning the hosts alone was not enough: the T14-08 failure
+    proved that an unpinned transitive -- Click, which Typer does not constrain --
+    silently decided whether an injected parameter raised at build time or became
+    a positional argument, so a green run meant something different from what the
+    test recorded. With the constraint file, the resolution is the one the
+    evidence was recorded on, or this session fails and says which pin disagrees.
     """
     _install_package(session, "dev")
+    if not EXAMPLES_CONSTRAINTS.is_file():
+        session.error(
+            f"{EXAMPLES_CONSTRAINTS.relative_to(ROOT)} is missing: the apps' resolved "
+            "dependency closure is what makes their measured behaviour reproducible"
+        )
     apps = json.loads(EXAMPLES_MANIFEST.read_text(encoding="utf-8"))["apps"]
     requests: list[str] = []
     for app in apps:
@@ -204,7 +222,8 @@ def examples(session: nox.Session) -> None:
             session.error(f"{requirement} is missing: {app['name']} has no pinned host")
             return  # unreachable: session.error raises
         requests.extend(["-r", str(requirement)])
-    session.install(*requests)
+    session.install("-c", str(EXAMPLES_CONSTRAINTS), *requests)
+    session.run("python", str(EXAMPLES_PINS), "--verify")
     session.run("pytest", str(EXAMPLES_APPS_DIR), "-q", *session.posargs)
 
 

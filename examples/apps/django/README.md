@@ -169,7 +169,7 @@ python examples/apps/django/django_app.py
 nox -s examples
 
 # install the host this app pins
-pip install -r examples/apps/django/requirements.txt
+pip install -c examples/apps/constraints.txt -r examples/apps/django/requirements.txt
 ```
 
 There is no `manage.py`, no migrations package and no database file: the example

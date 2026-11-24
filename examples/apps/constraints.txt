@@ -1,0 +1,107 @@
+# The sixteen example apps' resolved dependency closure (PRDs 10-14).
+#
+# `examples/apps/<app>/requirements.txt` names the host each example is about;
+# this file names everything that host *brings with it*, because that is what
+# decides the behaviour the tests assert -- Werkzeug's response `close()`,
+# Click's argument parsing under Typer, aiohttp's `multidict` headers. An
+# unpinned transitive is how the T14-08 claim was silently rewritten once.
+#
+# `nox -s examples` installs with `-c` this file and then runs
+# `python examples/apps/_pins.py --verify`, so the venv that runs the suite is
+# the one described here; `tests/examples/test_apps_manifest.py` checks the same
+# relation from a bare checkout. Regenerate, from the venv that installed the
+# hosts, with:
+#
+#     python examples/apps/_pins.py --write
+#
+# Each line names the apps whose closure reaches it. A pin no app reaches is a
+# pin nobody measures, and both `--verify` and the test report it.
+
+aiofiles==25.1.0  # quart, sanic
+aiohappyeyeballs==2.7.1  # aiohttp
+aiohttp==3.14.5  # aiohttp
+aiosignal==1.4.0  # aiohttp
+annotated-doc==0.0.7  # fastapi, typer
+annotated-types==0.8.0  # fastapi, typer
+anyio==4.16.0  # fastapi, litestar, sanic, starlette
+asgiref==3.13.0  # django
+attrs==26.1.0  # aiohttp, cyclopts
+beautifulsoup4==4.15.0  # pyramid
+blinker==1.9.0  # flask, quart
+bottle==0.13.4  # bottle
+certifi==2026.11.20  # fastapi, litestar, sanic, starlette
+click==8.5.1  # click, flask, litestar, quart, typer
+cyclopts==5.5.2  # cyclopts
+django==6.1.3  # django
+docstring-parser==0.18.0  # cyclopts
+faker==40.63.0  # litestar
+falcon==4.4.0  # falcon
+fastapi==0.165.0  # fastapi
+fire==0.7.1  # fire
+flask==3.1.3  # flask, quart
+frozenlist==1.8.0  # aiohttp
+h11==0.16.0  # fastapi, litestar, quart, sanic, starlette
+h2==4.4.1  # quart
+hpack==4.2.0  # quart
+html5tagger==2.0.0  # sanic
+httpcore==1.0.9  # fastapi, litestar, sanic, starlette
+httptools==0.9.0  # sanic
+httpx==0.28.1  # fastapi, litestar, sanic, starlette
+hupper==1.12.1  # pyramid
+hypercorn==0.18.0  # quart
+hyperframe==6.1.0  # quart
+idna==3.20  # aiohttp, fastapi, litestar, sanic, starlette
+itsdangerous==2.2.0  # flask, quart
+jinja2==3.1.6  # flask, quart
+legacy-cgi==2.6.4  # pyramid
+litestar==2.25.0  # litestar
+litestar-htmx==0.5.0  # litestar
+markdown-it-py==4.3.0  # cyclopts, litestar, typer
+markupsafe==3.0.4  # django, flask, quart
+mdurl==0.1.2  # cyclopts, litestar, typer
+msgspec==0.22.0  # litestar
+multidict==6.9.1  # aiohttp, litestar, sanic
+multipart==2.0.1  # litestar
+opentelemetry-api==1.45.2  # fastapi
+pastedeploy==3.1.0  # pyramid
+plaster==1.1.2  # pyramid
+plaster-pastedeploy==1.0.1  # pyramid
+polyfactory==3.5.0  # litestar
+priority==2.0.0  # quart
+propcache==0.5.4  # aiohttp
+pydantic==2.14.4  # fastapi, typer
+pydantic-core==2.50.5  # fastapi, typer
+pygments==2.21.0  # cyclopts, litestar, typer
+pyramid==2.1  # pyramid
+pyyaml==6.0.4  # litestar
+quart==0.23.1  # quart
+rich==15.0.0  # cyclopts, litestar, typer
+rich-click==1.9.9  # litestar
+rich-rst==2.2.0  # cyclopts
+sanic==25.12.1  # sanic
+sanic-routing==23.12.0  # sanic
+sanic-testing==24.6.0  # sanic
+setuptools==81.0.0  # pyramid, sanic
+shellingham==1.5.4  # typer
+sniffio==1.3.1  # litestar
+soupsieve==4.1.3  # pyramid
+sqlparse==0.6.1  # django
+starlette==1.10.0  # fastapi, starlette
+termcolor==3.3.0  # fire
+tracerite==2.6.5  # sanic
+translationstring==1.4  # pyramid
+typer==0.29.2  # typer
+typing-extensions==4.16.0  # fastapi, litestar, pyramid, sanic, starlette, typer
+typing-inspection==0.4.5  # fastapi, typer
+ujson==6.1.0  # sanic
+uvloop==0.23.0  # sanic
+venusian==3.1.1  # pyramid
+waitress==3.0.2  # pyramid
+webob==1.8.11  # pyramid
+websockets==17.4  # sanic
+webtest==3.0.7  # pyramid
+werkzeug==3.1.9  # django, flask, quart
+wsproto==1.3.2  # quart
+yarl==1.25.1  # aiohttp
+zope-deprecation==6.1  # pyramid
+zope-interface==8.7  # pyramid
