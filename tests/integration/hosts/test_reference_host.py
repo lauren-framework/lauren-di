@@ -454,9 +454,12 @@ def test_t09_17_a_closed_scope_refuses_further_resolution() -> None:
 
 def test_t09_18_the_public_surface_is_unchanged() -> None:
     """T09-18 / G10: exactly 38 names, none host-specific (PRD 01 §5.3)."""
-    import lauren_di
+    # The names the package *publishes*, taken from the module attribute rather
+    # than from a second spelling of the import: ``lauren_di`` is already
+    # imported by name above, and importing a module both ways is the same
+    # surface stated twice.
+    from lauren_di import __all__ as exported
 
-    exported = lauren_di.__all__
     assert len(exported) == 38, f"the public surface is {len(exported)} names, not 38"
     assert len(set(exported)) == len(exported)
     host_specific = {

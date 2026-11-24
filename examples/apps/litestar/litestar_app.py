@@ -25,7 +25,6 @@ if __name__ == "__main__":  # a direct run must still find the repo and the shar
         if str(_parent) not in sys.path:
             sys.path.insert(0, str(_parent))
 
-import litestar_di
 from _host import build_container
 from lauren_di import (
     DIContainer,
@@ -39,7 +38,8 @@ from lauren_di import (
 from litestar import Litestar, Request, get
 from litestar.background_tasks import BackgroundTask
 from litestar.response import Stream
-from litestar_di import LITESTAR_SCOPE_TOKEN, current_scope
+from litestar_di import LITESTAR_SCOPE_TOKEN, DIMiddleware, current_scope, lifespan_hooks
+from litestar_di import hooks_only as litestar_hooks_only
 
 
 @injectable()
@@ -177,7 +177,7 @@ class Example:
     recorder: Recorder
     container: DIContainer
     app: Litestar
-    adapter: litestar_di.DIMiddleware
+    adapter: DIMiddleware
 
 
 def create_container(recorder: Recorder) -> DIContainer:
@@ -286,7 +286,7 @@ def _handlers(recorder: Recorder) -> list[Any]:
     return [health, hello, stream, echo, scope_report, sync_handler, teardown_error, boom]
 
 
-def _middleware(container: DIContainer, report: Any) -> litestar_di.DIMiddleware:
+def _middleware(container: DIContainer, report: Any) -> DIMiddleware:
     """Build the one middleware instance this app owns.
 
     Args:
@@ -296,7 +296,7 @@ def _middleware(container: DIContainer, report: Any) -> litestar_di.DIMiddleware
     Returns:
         The middleware, which also carries the close log the tests read.
     """
-    return litestar_di.DIMiddleware(container, report=report)
+    return DIMiddleware(container, report=report)
 
 
 def create_app(
@@ -323,13 +323,13 @@ def create_app(
         app = Litestar(
             route_handlers=_handlers(recorder),
             middleware=[],
-            **litestar_di.hooks_only(container, report=report or recorder.report),
+            **litestar_hooks_only(container, report=report or recorder.report),
         )
     else:
         app = Litestar(
             route_handlers=_handlers(recorder),
             middleware=[adapter],
-            **litestar_di.lifespan_hooks(container, report=report or recorder.report),
+            **lifespan_hooks(container, report=report or recorder.report),
         )
     return Example(recorder=recorder, container=container, app=app, adapter=adapter)
 

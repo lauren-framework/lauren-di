@@ -25,7 +25,6 @@ if __name__ == "__main__":  # a direct run must still find the repo and the shar
         if str(_parent) not in sys.path:
             sys.path.insert(0, str(_parent))
 
-import quart_di
 from _host import build_container
 from lauren_di import (
     DIContainer,
@@ -37,7 +36,16 @@ from lauren_di import (
     pre_destruct,
 )
 from quart import Quart, jsonify, request
-from quart_di import QUART_REQUEST_TOKEN, current_scope
+from quart_di import (
+    QUART_REQUEST_TOKEN,
+    DIWrapper,
+    conversation,
+    current_scope,
+    install,
+    install_teardown_owner,
+    shutdown,
+    startup,
+)
 
 
 @injectable()
@@ -177,7 +185,7 @@ class Example:
     recorder: Recorder
     container: DIContainer
     app: Quart
-    wrapper: quart_di.DIWrapper | None
+    wrapper: DIWrapper | None
     """The installed wrapper, or ``None`` for the negative control that has none."""
 
 
@@ -306,12 +314,12 @@ def create_app(*, report: Any = None, teardown_owner: bool = False) -> Example:
     callback = report or recorder.report
 
     if teardown_owner:
-        quart_di.install_teardown_owner(app, container, report=callback)
-        wrapper: quart_di.DIWrapper | None = None
+        install_teardown_owner(app, container, report=callback)
+        wrapper: DIWrapper | None = None
         """No wrapper here on purpose: the framework's teardown hook is the owner,
         which is exactly the trap this variant exists to make measurable (T11-06)."""
     else:
-        wrapper = quart_di.install(app, container, report=callback)
+        wrapper = install(app, container, report=callback)
 
     _routes(app)
     return Example(recorder=recorder, container=container, app=app, wrapper=wrapper)
@@ -335,17 +343,17 @@ async def demo() -> int:
     """
     built = create_app()
     print("lauren_di + quart — one container, one unit per request\n")
-    await quart_di.startup(built.app)
+    await startup(built.app)
     try:
         print("after before_serving:", built.recorder.events)
         for path in ("/health", "/hello", "/echo", "/sync", "/teardown-error"):
-            call = await quart_di.conversation(built.app.asgi_app, path)
+            call = await conversation(built.app.asgi_app, path)
             print(f"GET {path:16} -> {call.status} {call.body.decode().strip()[:64]}")
         print("\nGET /stream (the close point is recorded by the wrapper):")
-        shown = await quart_di.conversation(built.app.asgi_app, "/stream")
+        shown = await conversation(built.app.asgi_app, "/stream")
         print("  " + shown.body.decode().strip().replace("\n", "\n  "))
     finally:
-        await quart_di.shutdown(built.app)
+        await shutdown(built.app)
     for close in built.wrapper.closes:
         print(f"  closed {close.path:18} after {close.body_messages} body message(s)")
     print("\nevent order:")
