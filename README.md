@@ -139,6 +139,8 @@ Everything ships in this repository, and the same pages are published at
   `use_class`, `use_factory`, `use_existing`.
 - [Testing and overrides](docs/guides/testing.md) — per-build `OverridePlan`s,
   isolated by `ContextVar`.
+- [Hosting in a framework](docs/guides/hosting.md) — the twelve obligations
+  of a host adapter, the close point, the synchronous bridge.
 - [Recipes](docs/recipes.md) — complete programs for the jobs people actually wire.
 - [Visibility](docs/visibility.md) — opt-in module boundaries.
 - [Errors](docs/errors.md) — the catalogue behind `DIError`.

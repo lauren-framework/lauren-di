@@ -1,0 +1,134 @@
+{
+  "contract": "prds/09-integration-contract-and-host-adapters.md",
+  "description": "One runnable example per host framework named in PRDs 10-14. The manifest is checked by tests/examples/test_apps_manifest.py and read by the `examples` nox session; add an app here or it does not exist.",
+  "apps": [
+    {
+      "name": "starlette",
+      "family": "asgi",
+      "prd": "10",
+      "app_module": "starlette_app",
+      "adapter_module": "starlette_di",
+      "test_module": "test_starlette"
+    },
+    {
+      "name": "fastapi",
+      "family": "asgi",
+      "prd": "10",
+      "app_module": "fastapi_app",
+      "adapter_module": "fastapi_di",
+      "test_module": "test_fastapi"
+    },
+    {
+      "name": "litestar",
+      "family": "async",
+      "prd": "11",
+      "app_module": "litestar_app",
+      "adapter_module": "litestar_di",
+      "test_module": "test_litestar"
+    },
+    {
+      "name": "quart",
+      "family": "async",
+      "prd": "11",
+      "app_module": "quart_app",
+      "adapter_module": "quart_di",
+      "test_module": "test_quart"
+    },
+    {
+      "name": "sanic",
+      "family": "async",
+      "prd": "11",
+      "app_module": "sanic_app",
+      "adapter_module": "sanic_di",
+      "test_module": "test_sanic"
+    },
+    {
+      "name": "aiohttp",
+      "family": "async",
+      "prd": "11",
+      "app_module": "aiohttp_app",
+      "adapter_module": "aiohttp_di",
+      "test_module": "test_aiohttp"
+    },
+    {
+      "name": "flask",
+      "family": "wsgi",
+      "prd": "12",
+      "app_module": "flask_app",
+      "adapter_module": "flask_di",
+      "test_module": "test_flask"
+    },
+    {
+      "name": "falcon",
+      "family": "wsgi",
+      "prd": "12",
+      "app_module": "falcon_app",
+      "adapter_module": "falcon_di",
+      "test_module": "test_falcon"
+    },
+    {
+      "name": "pyramid",
+      "family": "wsgi",
+      "prd": "12",
+      "app_module": "pyramid_app",
+      "adapter_module": "pyramid_di",
+      "test_module": "test_pyramid"
+    },
+    {
+      "name": "bottle",
+      "family": "wsgi",
+      "prd": "12",
+      "app_module": "bottle_app",
+      "adapter_module": "bottle_di",
+      "test_module": "test_bottle"
+    },
+    {
+      "name": "django",
+      "family": "django",
+      "prd": "13",
+      "app_module": "django_app",
+      "adapter_module": "django_di",
+      "test_module": "test_django"
+    },
+    {
+      "name": "argparse",
+      "family": "cli",
+      "prd": "14",
+      "app_module": "argparse_app",
+      "adapter_module": "argparse_di",
+      "test_module": "test_argparse"
+    },
+    {
+      "name": "click",
+      "family": "cli",
+      "prd": "14",
+      "app_module": "click_app",
+      "adapter_module": "click_di",
+      "test_module": "test_click"
+    },
+    {
+      "name": "typer",
+      "family": "cli",
+      "prd": "14",
+      "app_module": "typer_app",
+      "adapter_module": "typer_di",
+      "test_module": "test_typer"
+    },
+    {
+      "name": "cyclopts",
+      "family": "cli",
+      "prd": "14",
+      "app_module": "cyclopts_app",
+      "adapter_module": "cyclopts_di",
+      "test_module": "test_cyclopts"
+    },
+    {
+      "name": "fire",
+      "family": "cli",
+      "prd": "14",
+      "app_module": "fire_app",
+      "adapter_module": "fire_di",
+      "test_module": "test_fire"
+    }
+  ]
+}

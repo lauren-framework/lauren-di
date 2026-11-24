@@ -14,7 +14,7 @@ than assumed:
 4. every script imports only the standard library and ``lauren_di`` — the
    library's own runtime rule (PRD 01 §6.2), which an example must not quietly
    widen by importing a web framework;
-5. ``examples/README.md`` and the directory name the same ten examples, and
+5. ``examples/README.md`` and the directory name the same eleven examples, and
    the index documents the exact command this module runs.
 
 The scripts are driven as subprocesses rather than imported: importing one
@@ -42,10 +42,13 @@ EXAMPLES = ROOT / "examples"
 INDEX = EXAMPLES / "README.md"
 
 #: One index row's link: ``[01_minimal_singleton.py](01_minimal_singleton.py)``.
-_INDEX_ROW_RE = re.compile(r"\[(?P<name>\d{2}_[a-z0-9_]+\.py)\]\((?P<target>[^)]+)\)")
-#: The goal asks for ten distinct scenarios; a different figure is a deliberate
-#: decision, not something to discover by accident.
-DOCUMENTED_EXAMPLES = 10
+#: The numeric prefix is conventional, not required: ``host_unit_of_work.py``
+#: is named by PRD 09 §8 and must be indexable under that name.
+_INDEX_ROW_RE = re.compile(r"\[(?P<name>(?:\d{2}_)?[a-z0-9_]+\.py)\]\((?P<target>[^)]+)\)")
+#: The goal asks for ten distinct scenarios plus the PRD 09 reference host;
+#: a different figure is a deliberate decision, not something to discover by
+#: accident.
+DOCUMENTED_EXAMPLES = 11
 #: ``sys.stdlib_module_names`` is the interpreter's own answer to "is this
 #: stdlib?", so the allow-list cannot drift from the Python running the tests.
 _ALLOWED_IMPORTS = frozenset(sys.stdlib_module_names) | {"lauren_di"}
@@ -134,12 +137,12 @@ def _imported_roots(tree: ast.Module) -> set[str]:
     return roots
 
 
-def test_the_directory_holds_the_ten_documented_scenarios() -> None:
-    """The deliverable is ten distinct examples, not "some files"."""
+def test_the_directory_holds_the_documented_scenarios() -> None:
+    """The deliverable is eleven distinct examples, not "some files"."""
     scripts = example_scripts()
     assert len(scripts) == DOCUMENTED_EXAMPLES, (
         f"examples/ holds {len(scripts)} script(s), but this suite documents "
-        f"{DOCUMENTED_EXAMPLES}. Adding an eleventh is a deliberate change: update "
+        f"{DOCUMENTED_EXAMPLES}. Adding a twelfth is a deliberate change: update "
         "DOCUMENTED_EXAMPLES and the index table together."
     )
 

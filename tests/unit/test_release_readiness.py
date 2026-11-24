@@ -160,10 +160,12 @@ def test_test_and_coverage_configuration_is_present() -> None:
 
     coverage = config["tool"]["coverage"]
     assert coverage["run"]["branch"] is True
-    assert coverage["report"]["fail_under"] >= 75, (
+    assert coverage["report"]["fail_under"] >= 85, (
         "the coverage ratchet must not be lowered; raise it as tests are added "
-        "(measured at 75.55 % branch coverage over the suite that runs everywhere, "
-        "i.e. with tests/parity excluded: those cases need an external checkout)"
+        "(the gate sits on 85 and the measured figure is 88.61 % branch coverage, "
+        "1370 statements / 536 branches / 126 missed / 61 partial, over the suite "
+        "that runs everywhere, i.e. with tests/parity excluded: those cases need an "
+        "external checkout)"
     )
 
 

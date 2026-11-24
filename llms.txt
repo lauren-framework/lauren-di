@@ -53,6 +53,9 @@ per public symbol with a signature and a runnable example.
   `grant_visible`, `visible_in`, `explain`.
 - [Testing and overrides](docs/guides/testing.md): `OverridePlan`,
   `ProviderOverride`, `building_with`, the pytest fixture pattern.
+- [Hosting in a framework](docs/guides/hosting.md): the host-adapter
+  contract — the twelve obligations, the close point per host shape, the
+  synchronous bridge, the conformance invariants.
 - [Recipes](docs/recipes.md): complete programs for the common jobs — configuration,
   a request unit of work, per-build substitution, protocols, plugin lists.
 - [Errors](docs/errors.md): the full catalogue with stable `code` values.

@@ -29,6 +29,7 @@ Design principles
 from __future__ import annotations
 
 import hashlib
+import json
 import re
 import shutil
 import subprocess
@@ -44,6 +45,11 @@ ROOT = Path(__file__).parent
 PACKAGE_DIR = ROOT / "lauren_di"
 TESTS_DIR = ROOT / "tests"
 SCRIPTS_DIR = ROOT / "scripts"
+#: The framework examples: one app per host named in PRDs 10-14, plus the
+#: framework-free reference adapter they share. ``apps.json`` is the manifest the
+#: suite checks and this file reads, so a new app is one entry, not two edits.
+EXAMPLES_APPS_DIR = ROOT / "examples" / "apps"
+EXAMPLES_MANIFEST = EXAMPLES_APPS_DIR / "apps.json"
 DOCS_DIR = ROOT / "docs"
 SITE_DIR = ROOT / "site"
 DIST_DIR = ROOT / "dist"
@@ -170,6 +176,36 @@ def unit(session: nox.Session) -> None:
 def integration(session: nox.Session) -> None:
     """Run the integration tests only (``-m integration``)."""
     _pytest(session, str(TESTS_DIR / "integration"), "-q")
+
+
+@nox.session(python=PRIMARY_PYTHON)
+def examples(session: nox.Session) -> None:
+    """Install every host example's pinned requirements and run the apps.
+
+    The apps under ``examples/apps/`` are the executable half of PRDs 09-14: one
+    app per host framework, each demonstrating the same adapter contract. They
+    cannot run in the ordinary suite -- the suite must stay installable with no
+    third-party host -- so this session is their gate.
+
+    The requirements come from each app's own ``requirements.txt``, read through
+    ``apps.json`` rather than globbed: an app that is listed but has no pinned
+    requirements is a bug, and globbing would hide it. Every app's tests are
+    skip-guarded on its host's *distribution* (D-62), so a host that fails to
+    install here is reported as a skip with a reason instead of a green run that
+    measured nothing -- the failure mode this session exists to prevent is a
+    framework sample that never executed.
+    """
+    _install_package(session, "dev")
+    apps = json.loads(EXAMPLES_MANIFEST.read_text(encoding="utf-8"))["apps"]
+    requests: list[str] = []
+    for app in apps:
+        requirement = EXAMPLES_APPS_DIR / app["name"] / "requirements.txt"
+        if not requirement.is_file():
+            session.error(f"{requirement} is missing: {app['name']} has no pinned host")
+            return  # unreachable: session.error raises
+        requests.extend(["-r", str(requirement)])
+    session.install(*requests)
+    session.run("pytest", str(EXAMPLES_APPS_DIR), "-q", *session.posargs)
 
 
 def _coverage_threshold_flags() -> list[str]:
@@ -749,6 +785,7 @@ def ci(session: nox.Session) -> None:
         ("tests", []),
         ("unit", []),
         ("integration", []),
+        ("examples", []),
         ("coverage", []),
         ("parity", []),
         ("llms_check", []),

@@ -1,6 +1,6 @@
 # `lauren_di` examples
 
-Ten self-contained programs, each demonstrating one distinct part of the
+Eleven self-contained programs, each demonstrating one distinct part of the
 library. They are deliberately small: every file is a single script with a
 module docstring stating the scenario, a `main()` coroutine, and an
 `if __name__ == "__main__"` entry point.
@@ -41,7 +41,7 @@ The commands in this file always use the first form, because that is the form
 the test suite runs and checks verbatim. No example reads the current working
 directory, so either is safe.
 
-## The ten examples
+## The eleven examples
 
 | # | Example | What it demonstrates | Run |
 | --- | --- | --- | --- |
@@ -55,6 +55,7 @@ directory, so either is safe.
 | 8 | [08_explicit_scope_embedding.py](08_explicit_scope_embedding.py) | Driving a request scope by hand with `container.scope(values=...)`, with no framework anywhere. | `PYTHONPATH=. python examples/08_explicit_scope_embedding.py` |
 | 9 | [09_override_plans.py](09_override_plans.py) | `OverridePlan` and `building_with` for tests and feature flags: one build is overridden, the next is not. | `PYTHONPATH=. python examples/09_override_plans.py` |
 | 10 | [10_custom_provider_and_lifecycle.py](10_custom_provider_and_lifecycle.py) | A `use_factory` custom provider plus a generator provider, with `startup()` building and `shutdown()` tearing down. | `PYTHONPATH=. python examples/10_custom_provider_and_lifecycle.py` |
+| 11 | [host_unit_of_work.py](host_unit_of_work.py) | The PRD 09 §5.11 reference host adapter: one container, one `ResolutionScope` per unit of work, a streaming unit that closes after its last chunk, and a `shutdown()` tuple the host reads. | `PYTHONPATH=. python examples/host_unit_of_work.py` |
 
 ## Pick the example closest to your problem
 
@@ -70,6 +71,51 @@ directory, so either is safe.
 | have no framework and must drive a scope yourself | 8 | `PYTHONPATH=. python examples/08_explicit_scope_embedding.py` |
 | need to fake a dependency in a test or behind a flag | 9 | `PYTHONPATH=. python examples/09_override_plans.py` |
 | have a value that is not a class — a factory or a generator | 10 | `PYTHONPATH=. python examples/10_custom_provider_and_lifecycle.py` |
+| are writing a host adapter — a framework, a CLI or a job runner | 11 | `PYTHONPATH=. python examples/host_unit_of_work.py` |
+
+## The sixteen host apps
+
+The scripts above need nothing but `lauren_di`. The other half of this directory
+is `apps/`: one runnable application per host framework named in PRDs 10–14,
+each proving the same contract — start the container once, open one
+`ResolutionScope` per unit of work, and close it at the **transport's** finished
+point rather than when the handler returns. Every app pins its host in its own
+`requirements.txt`, so a framework is installed on demand and this directory
+stays dependency-free.
+
+| Host | Family | PRD | The close point it proves |
+| --- | --- | --- | --- |
+| [starlette](apps/starlette/README.md) | ASGI | 10 | after the last body chunk, in a pure-ASGI middleware's `finally` |
+| [fastapi](apps/fastapi/README.md) | ASGI | 10 | the same point, with `Depends` and `Inject` side by side |
+| [litestar](apps/litestar/README.md) | async | 11 | in `ASGIMiddleware`, after the body is sent |
+| [quart](apps/quart/README.md) | async | 11 | on a wrapper around `app.asgi_app` — never `teardown_request` |
+| [sanic](apps/sanic/README.md) | async | 11 | the request middleware plus a body hook; response middleware alone is early |
+| [aiohttp](apps/aiohttp/README.md) | async | 11 | after the handler, before the response is written |
+| [flask](apps/flask/README.md) | WSGI | 12 | on the response iterable's `close()` |
+| [falcon](apps/falcon/README.md) | WSGI | 12 | on the response iterable's `close()` |
+| [pyramid](apps/pyramid/README.md) | WSGI | 12 | on the response iterable's `close()` |
+| [bottle](apps/bottle/README.md) | WSGI | 12 | on the response iterable's `close()` |
+| [django](apps/django/README.md) | Django | 13 | after the response's `close()`, from a per-request decorator |
+| [argparse](apps/argparse/README.md) | CLI | 14 | after the command body, before the process exits |
+| [click](apps/click/README.md) | CLI | 14 | in a `finally`, before `SystemExit` |
+| [typer](apps/typer/README.md) | CLI | 14 | the same body as click; only registration differs |
+| [cyclopts](apps/cyclopts/README.md) | CLI | 14 | after the command body, before exit |
+| [fire](apps/fire/README.md) | CLI | 14 | after the function returns, before Fire prints |
+
+[`apps/README.md`](apps/README.md) is the full index: one row per host with its
+install point, the four-file layout every app shares, and the two shared
+modules — `_host.py` (the reference adapter) and `_testing.py` (the skip guard
+that makes an absent framework a SKIP, never a PASS). Each app's own README
+states what its framework forces and the command that runs it:
+
+```bash
+python -m pytest examples/apps/flask
+```
+
+Read [Hosting in a framework](../docs/guides/hosting.md) before writing an
+adapter of your own: it is the framework-neutral contract — the twelve
+obligations, the close point for each host shape, the synchronous bridge — that
+these sixteen applications implement.
 
 ## What to copy and what to change
 

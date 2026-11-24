@@ -1,0 +1,10 @@
+# Host dependencies for examples/apps/django (PRD 13).
+#
+# Pinned exactly: these are the versions the example was run against, and the
+# versions `nox -s examples` installs. `lauren_di` itself stays dependency-free
+# (PRD 01 §6.2) — this file is the *example's* dependency list, not the
+# library's, and it is never referenced from `pyproject.toml`.
+django==6.1.3
+# T13-16 drives a threaded Werkzeug server as the production contrast for
+# `django.test.Client`; the PRD's reference versions are Werkzeug 3.1.9.
+werkzeug==3.1.9
