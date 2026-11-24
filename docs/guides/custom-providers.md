@@ -15,7 +15,8 @@ unrelated keys, and the string is a label for errors and `explain`, not a match 
 | `Token("db")` | that object only | `id()` | one module owns the binding |
 | `Token("db", unique=False)` | any instance with that name | the name | two modules must agree on a key |
 
-```python run
+<!-- docs-contract: run -->
+```python
 from lauren_di import Token
 
 assert Token("db") != Token("db")
@@ -34,7 +35,8 @@ code) and share a module-level constant everywhere else.
 Resolution defaults to the parameter's type. When the key is not a type, put
 `Inject(token)` inside `Annotated[...]`, on an `__init__` parameter or a class field.
 
-```python run
+<!-- docs-contract: run -->
+```python
 from typing import Annotated
 
 from lauren_di import DIContainer, Inject, Token, injectable, use_value
@@ -70,7 +72,8 @@ assert (await container.resolve(Client)).url == "postgres://x"
 position lauren core emits. It resolves exactly like the bare type and adds nothing
 at runtime.
 
-```python run
+<!-- docs-contract: run -->
+```python
 from lauren_di import Depends
 
 class Repo:
@@ -97,7 +100,8 @@ Each helper returns a frozen `CustomProvider`; `register_custom` lowers it to a 
 `injects` is the positional argument list handed to the factory, resolved left to
 right: a factory has no signature to annotate, so its dependencies are named there.
 
-```python run
+<!-- docs-contract: run -->
+```python
 from lauren_di import DIContainer, Scope, Token, use_class, use_value
 
 SETTINGS = Token("settings")
@@ -123,7 +127,8 @@ A factory that is a generator — `async` or not — is a resource factory: the 
 `yield`ed value is the instance and the rest of the body runs at
 `await container.shutdown()`. Extra `yield`s are ignored.
 
-```python run
+<!-- docs-contract: run -->
+```python
 from lauren_di import DIContainer, Token, use_factory
 
 CONNECTION = Token("connection")
@@ -152,7 +157,8 @@ resolves to, in the target's own scope: alias a singleton and both names share o
 instance, alias a `Scope.TRANSIENT` token and each resolution builds a new one; an
 alias may also point at another alias.
 
-```python run
+<!-- docs-contract: run -->
+```python
 from lauren_di import DIContainer, Scope, injectable, use_existing
 
 @injectable()
@@ -187,7 +193,8 @@ The record is frozen: `provide` (the token), `kind` (`"value"`, `"class"`,
 payload are checked when you build it, so a malformed recipe fails before
 registration.
 
-```python run
+<!-- docs-contract: run -->
+```python
 from lauren_di import use_value
 
 provider = use_value(provide="db_url", value="postgres://x")

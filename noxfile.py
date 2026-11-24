@@ -519,15 +519,23 @@ def parity(session: nox.Session) -> None:
 # ---------------------------------------------------------------------------
 @nox.session(python=PRIMARY_PYTHON, reuse_venv=True)
 def docs(session: nox.Session) -> None:
-    """Build the MkDocs site into ``site/`` in strict mode.
+    """Build the MkDocs site into ``site/`` in strict mode, then read it back.
 
     Strict mode turns any warning — a broken link, a page missing from the nav,
-    an unresolvable reference — into an error, which is what CI runs.
+    an unresolvable reference — into an error, which is what CI runs. It says
+    nothing about whether a page *rendered*: a fence whose info string carries a
+    marker word is not a fence to ``pymdownx.superfences``, so the block becomes
+    paragraph text and swallows the rest of the page while strict mode stays
+    green (measured: ``testing.md`` 9 ``##`` headings, 6 rendered). So the build
+    is followed by ``scripts/check_rendered_docs.py``, which compares each page's
+    headings with the ``<h2 id=`` elements MkDocs wrote and looks for a fence
+    marker left in the HTML.
     """
     if not DOCS_REQUIREMENTS.exists():
         session.error(f"{DOCS_REQUIREMENTS.name} is missing")
     session.install("-r", str(DOCS_REQUIREMENTS))
     session.run("mkdocs", "build", "--strict", *session.posargs)
+    session.run("python", str(SCRIPTS_DIR / "check_rendered_docs.py"))
 
 
 @nox.session(python=PRIMARY_PYTHON, reuse_venv=True, name="docs_contract")

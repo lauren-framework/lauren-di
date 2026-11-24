@@ -7,7 +7,8 @@ container.
 
 ## Declaring a row's owner
 
-```python run
+<!-- docs-contract: run -->
+```python
 from lauren_di import DIContainer, MissingProviderError, injectable
 
 
@@ -29,7 +30,8 @@ from every domain.
 
 ## Declaring what a module may see
 
-```python run
+<!-- docs-contract: run -->
+```python
 container.set_visible(BillingModule, frozenset())           # own rows only
 container.grant_visible(BillingModule, frozenset({Store}))  # plus Store
 ```
@@ -66,7 +68,8 @@ declares no domain, so it cannot reach a module-owned row.
 `billing` owns `Store`; `shipping` owns `Shipment`, whose constructor needs one.
 Each package declares its own view:
 
-```python run
+<!-- docs-contract: run -->
+```python
 class ShippingModule:
     pass
 
@@ -98,7 +101,8 @@ grant Store to ShippingModule (set_visible or grant_visible), or resolve it from
 `Shipment` is shipping's own row, so it is visible; the blocked edge is `Store`.
 The hint names both fixes — take the first:
 
-```python run
+<!-- docs-contract: run -->
+```python
 packages.grant_visible(ShippingModule, frozenset({Store}))
 shipment = await packages.resolve(Shipment, owning_module=ShippingModule)
 print(type(shipment.store).__name__)
@@ -113,7 +117,8 @@ arguments.
 Only the edge being crossed is checked. Here `PricedStore` (billing) needs
 `Rates` (pricing), and shipping asks only for `PricedStore`:
 
-```python run
+<!-- docs-contract: run -->
+```python
 class PricingModule:
     pass
 
@@ -150,7 +155,8 @@ needs the row, not the one that asked for it.
 It never raises and never constructs anything, so it is safe to call from a
 debugger or a test:
 
-```python run
+<!-- docs-contract: run -->
+```python
 diagnosed = DIContainer()
 diagnosed.register(Store, owning_module=BillingModule)
 print(diagnosed.explain(Store))
@@ -172,7 +178,8 @@ status: not_visible
 
 A caller that never declared a domain at all:
 
-```python run
+<!-- docs-contract: run -->
+```python
 class ReportingModule:
     pass
 
@@ -197,7 +204,8 @@ and `status: unregistered`.
 A blocked resolve raises `MissingProviderError` with `code="missing_provider"`
 and a `detail` mapping carrying the reason and a remediation hint:
 
-```python run
+<!-- docs-contract: run -->
+```python
 try:
     diagnosed.get_provider(Store, owning_module=ReportingModule)
 except MissingProviderError as exc:
@@ -227,7 +235,8 @@ visibility`.
 `visible_in(module_cls)` returns the module's declared set — its own tokens plus
 its grants:
 
-```python run
+<!-- docs-contract: run -->
+```python
 diagnosed.grant_visible(ShippingModule, frozenset({Store}))
 print(sorted(token.__name__ for token in diagnosed.visible_in(ShippingModule)))
 print(repr(diagnosed.visible_in(ReportingModule)))

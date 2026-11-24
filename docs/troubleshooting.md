@@ -55,7 +55,8 @@ These are the cases where nothing was raised, so there is no `code` to look up.
 A singleton that wants a request-scoped dependency fails at compile time, not at
 the call site, which is the point of compiling eagerly.
 
-```python fragment
+<!-- docs-contract: fragment -->
+```python
 from lauren_di import DIContainer, Scope, injectable
 
 

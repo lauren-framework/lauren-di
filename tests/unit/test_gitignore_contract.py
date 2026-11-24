@@ -117,6 +117,7 @@ TRACKED: tuple[str, ...] = (
     "scripts/build_reference.py",
     "scripts/check_docs_contract.py",
     "scripts/check_llms_full.py",
+    "scripts/check_rendered_docs.py",
     "tests/conftest.py",
     "tests/packaging/test_wheel.py",
     "tests/typing/reveal_resolve.py",

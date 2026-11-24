@@ -49,7 +49,8 @@ default the idiom for an optional dependency.
 
 An unannotated parameter is refused at `register`, before the graph exists:
 
-```python fragment
+<!-- docs-contract: fragment -->
+```python
 @injectable()
 class Broken:
     def __init__(self, repo) -> None: ...
@@ -62,7 +63,8 @@ parameter is never filled. With `SINGLETON` scope the instance is built during
 `startup()`, so that is where the `TypeError` surfaces — not at `register`, and not
 at `resolve`:
 
-```python fragment
+<!-- docs-contract: fragment -->
+```python
 @injectable()
 class PositionalOnly:
     def __init__(self, repo: Repo, /) -> None: ...
@@ -126,7 +128,8 @@ silently — no error at `register`, none at `compile`, and the attribute is sim
 absent when you first touch it. For a token that is not a class, write the
 `Annotated[T, Inject(token)]` form, which the gates honour:
 
-```python fragment
+<!-- docs-contract: fragment -->
+```python
 @injectable()
 class Repository:
     dsn: Annotated[str, Inject("DSN")]
@@ -159,7 +162,8 @@ providers runs at `shutdown()` in reverse order of construction.
 Because the token is the function, an annotation that asks for it has to name the
 function, which means the `Annotated[T, Inject(fn)]` form:
 
-```python fragment
+<!-- docs-contract: fragment -->
+```python
 @injectable()
 def make_session(cfg: Config) -> Session:
     return Session(cfg.dsn)

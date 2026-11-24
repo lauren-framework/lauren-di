@@ -28,7 +28,10 @@ standard library only, this checks:
    ``fragment``/``skip`` exempts a block from *execution*, not from *parsing*,
    and every ``python`` block on a page named in ``MARKED_PAGES`` must carry one
    of the three markers — the host pages, where a reader cannot otherwise tell a
-   copyable recipe from a partial snippet (PRD 14 row T14-13).
+   copyable recipe from a partial snippet (PRD 14 row T14-13). Every ``python``
+   block on a page MkDocs renders (``docs/**``) must carry that marker in the
+   HTML comment above the fence and **nothing else in the info string**; the
+   reason is under "Markers" below.
 4. **Coverage** — every name in ``lauren_di.__all__`` has a ``### <Name>``
    section in ``docs/reference.md``.
 5. **Freshness** — ``docs/reference.md`` is byte-identical to what
@@ -38,9 +41,21 @@ standard library only, this checks:
 
 Markers live in the fence's info string: ```` ```python run ````,
 ```` ```python fragment ```` (alias ``skip``) exempts a deliberately partial
-block. MkDocs does not render extra info-string words on ``docs/`` pages, so
-there prefer the HTML comment ``<!-- docs-contract: run -->`` on the line above
-the fence.
+block. On a ``docs/`` page the marker must instead be the HTML comment
+``<!-- docs-contract: run -->`` on the line above a plain ```` ```python ````
+fence, and the info string must carry the language alone.
+
+That is not style. ``pymdownx.superfences`` does not recognise a fence whose
+info string has a second word: ```` ```python run ```` is rendered as *literal
+paragraph text* and the next ```` ``` ```` then opens a block that swallows every
+following heading and paragraph, so the page is mangled from its first marked
+block onward — while ``mkdocs build --strict`` reports nothing at all. Measured
+on this corpus before the rule: ``docs/guides/testing.md`` had 9 ``##`` headings
+and 6 rendered ``<h2 id=``, ``docs/visibility.md`` 10 and 8,
+``docs/guides/custom-providers.md`` 6 and 4. The comment form is the one both
+readers understand, so this check rejects the inline form under ``docs/`` and
+``scripts/check_rendered_docs.py`` then verifies the built HTML really does carry
+every heading and no leftover fence.
 
 Exit codes: 0 — clean; 1 — at least one violation; 2 — configuration error.
 """
@@ -101,6 +116,17 @@ MARKERS = frozenset({"run", "fragment", "skip"})
 #: complied when the rule was added -- it is listed so a later edit cannot
 #: quietly drop a marker from the page that set the convention.
 MARKED_PAGES = frozenset({"docs/guides/cli.md", "docs/guides/hosting.md"})
+#: Pages MkDocs renders. There a marker must live in the HTML-comment form,
+#: because ``pymdownx.superfences`` does not treat an info string with a second
+#: word as a fence at all: ```` ```python run ```` renders as literal paragraph
+#: text and the *next* fence opens a block that swallows every following heading
+#: and paragraph, so the page is mangled from its first marked block onward while
+#: ``mkdocs build --strict`` stays green. Measured on this corpus before the rule:
+#: ``docs/guides/testing.md`` had 9 ``##`` headings and 6 rendered ``<h2>``,
+#: ``docs/visibility.md`` 10 and 8, ``docs/guides/custom-providers.md`` 6 and 4.
+#: The comment form is what the parser and MkDocs both agree on, so under
+#: ``docs/`` the info string may carry the language and nothing else.
+RENDERED_PAGES_PREFIX = "docs/"
 RUN_TIMEOUT_S = 20.0
 
 _FENCE_RE = re.compile(r"^(?P<indent>[ \t]*)(?P<fence>`{3,}|~{3,})(?P<info>.*)$")
@@ -123,6 +149,11 @@ class Block:
     language: str
     markers: frozenset[str]
     source: str
+    #: Words after the language in the info string, lower-cased. On a rendered
+    #: page this must be empty: the marker belongs in the HTML comment above the
+    #: fence, because MkDocs does not read the second word (see
+    #: ``RENDERED_PAGES_PREFIX``).
+    extra_info: tuple[str, ...] = ()
 
     @property
     def location(self) -> str:
@@ -201,6 +232,7 @@ def extract_blocks(text: str, path: str = "<string>") -> list[Block]:
                 language=language,
                 markers=frozenset(markers),
                 source="\n".join(body),
+                extra_info=tuple(word.lower() for word in words[1:]),
             )
         )
         index += 1
@@ -453,6 +485,20 @@ def check_blocks(*, execute: bool) -> list[Violation]:
         for block in extract_blocks(text, relative):
             if block.language not in PYTHON_LANGUAGES:
                 continue
+            if block.extra_info and relative.startswith(RENDERED_PAGES_PREFIX):
+                violations.append(
+                    Violation(
+                        block.location,
+                        "marker",
+                        "a rendered page's fence info string may carry only the "
+                        f"language, not {' '.join(block.extra_info)!r}: MkDocs does "
+                        "not read a second word as a marker, it renders it as body "
+                        "text and swallows the rest of the page -- put "
+                        f"`<!-- docs-contract: {block.extra_info[0]} -->` on the "
+                        "line above the fence (the check that a built page still "
+                        "has all its headings is `scripts/check_rendered_docs.py`)",
+                    )
+                )
             if not block.markers and relative in MARKED_PAGES:
                 violations.append(
                     Violation(
