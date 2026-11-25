@@ -282,14 +282,16 @@ open a scope", never "the graph is wrong".
 
 ## Nested scopes
 
-Scopes nest, and a nested scope is a sibling of its parent, not a child: it
-shares the container's singletons, but it starts with an empty request cache.
+A scope opens a child with `scoped.scope()`, and a child can open its own
+child, to any depth. The difference from calling `container.scope()` again is
+what the child *sees*:
 
-| Thing | Inherited by a nested scope? |
+| Thing | Inherited by a child scope? |
 | --- | --- |
 | `SINGLETON` instances | yes — they live on the container |
-| `REQUEST` instances of the parent scope | no — each scope has its own cache |
-| parent's `values` | no — pass them again if the inner scope needs them |
+| `REQUEST` instances of the ancestors | yes, read through — the instance the parent created is reused, not rebuilt |
+| `REQUEST` instances the child creates | no — cached at the child and torn down when the child closes |
+| parent's `values` | yes — copied into the child, which may override them |
 
 <!-- docs-contract: run -->
 ```python
@@ -313,12 +315,15 @@ async def main() -> None:
     container.register(Session)
     container.register(Settings)
 
-    async with container.scope() as outer:
+    async with container.scope(values={"tenant": "acme"}) as outer:
         outer_session = await outer.resolve(Session)
         settings = await outer.resolve(Settings)
 
-        async with container.scope() as inner:
-            assert await inner.resolve(Session) is not outer_session
+        async with outer.scope(values={"job": "nightly"}) as inner:
+            assert inner.depth == 2
+            assert inner.parent is outer
+            assert inner.values == {"tenant": "acme", "job": "nightly"}
+            assert await inner.resolve(Session) is outer_session  # read through
             assert await inner.resolve(Settings) is settings
 
         assert inner.closed is True
@@ -329,8 +334,55 @@ async def main() -> None:
 asyncio.run(main())
 ```
 
-Closing the inner scope finalises only what the inner scope created; the outer
-scope stays open and keeps its own instances.
+Closing a scope finalises the instances it created, newest first, and closes any
+child scopes nobody closed first — so an instance is never handed out after the
+scope that owns it tore it down. Each level keeps its own `errors` tuple.
+
+`container.scope()` inside an open scope is still a **root**: a second chain
+with an empty cache and no inherited values. Reach for it when the nested work
+must not share request state at all.
+
+### Capping the depth
+
+Nesting is unlimited by default. When a graph or a host wants a bound, state it
+once on the container — or narrow it for one subtree:
+
+<!-- docs-contract: run -->
+```python
+import asyncio
+
+from lauren_di import DIContainer, LifecycleViolationError, Scope, injectable
+
+
+@injectable(scope=Scope.REQUEST)
+class Session:
+    pass
+
+
+async def main() -> None:
+    container = DIContainer(max_scope_depth=2)
+    container.register(Session)
+
+    root = container.scope()
+    child = root.scope()
+
+    try:
+        child.scope()
+    except LifecycleViolationError as exc:
+        assert exc.detail["reason"] == "depth_exceeded"
+        assert exc.detail["depth"] == 3
+        assert exc.detail["max_depth"] == 2
+
+    await root.close()
+
+
+asyncio.run(main())
+```
+
+`max_depth=` on `container.scope()` or `scoped.scope()` narrows the limit for
+that subtree; it cannot widen it, and `max_depth=0` is a
+`LifecycleConfigError`. The limit is checked *before* anything is constructed,
+so an over-deep call costs nothing.
 
 ## Aliases are transparent to scope validation
 

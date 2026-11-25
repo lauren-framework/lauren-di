@@ -49,9 +49,9 @@ EXPECTED_RUN_BLOCKS = 22
 #: outside the two sections this harness used to name.
 CORPUS_PAGES = prd_examples.PRD_PAGES
 CORPUS = {page.name: prd_examples.collect_page(page) for page in CORPUS_PAGES}
-EXPECTED_CORPUS_PAGES = 14
-EXPECTED_CORPUS_BLOCKS = 118
-EXPECTED_CORPUS_RUN_BLOCKS = 31
+EXPECTED_CORPUS_PAGES = 15
+EXPECTED_CORPUS_BLOCKS = 124
+EXPECTED_CORPUS_RUN_BLOCKS = 34
 EXPECTED_CORPUS_UNMARKED = 0
 
 #: A miniature section exercising every marker the contract understands.
@@ -257,7 +257,7 @@ def test_run_marked_blocks_execute_in_file_order() -> None:
 def test_the_corpus_census_is_the_one_this_module_executes(
     capsys: pytest.CaptureFixture[str],
 ) -> None:
-    """The corpus's shape, pinned: 118 blocks over 14 pages, 31 of them executed.
+    """The corpus's shape, pinned: 124 blocks over 15 pages, 34 of them executed.
 
     The census is the claim this module makes about itself — every ``run`` block
     in every PRD executes here, and nothing else is expected to. ``prds/
@@ -280,7 +280,7 @@ def test_the_corpus_census_is_the_one_this_module_executes(
         == EXPECTED_CORPUS_RUN_BLOCKS
     )
     assert report == (
-        "118 python block(s) in 14 page(s): 31 marked run, 87 fragment/skip, 0 unmarked"
+        "124 python block(s) in 15 page(s): 34 marked run, 90 fragment/skip, 0 unmarked"
     )
 
 

@@ -7,6 +7,32 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- `ResolutionScope.scope()` opens a **child scope**: any depth, a read-through
+  cache (an ancestor's `REQUEST` instance is reused, only what a level creates is
+  cached and torn down there) and `values` inherited by copy. New members
+  `parent`, `depth` and `child_scopes()` report the chain (PRD 15, D-64 … D-66).
+- Configurable nesting depth: `DIContainer(max_scope_depth=N)` is the container
+  policy and `scope(max_depth=N)` narrows one subtree. Unlimited when both are
+  `None`; an over-deep call raises `LifecycleViolationError`
+  (`reason: "depth_exceeded"`) before anything is constructed, and a value below
+  1 or a widened subtree raises `LifecycleConfigError` (D-67).
+- `ResolutionScope.close()` closes the children nobody closed first, deepest
+  first, so an instance is never torn down while a scope that reads through it is
+  still resolvable (D-68). Both the close walk and the cache lookup are loops, so
+  a 2,000-level chain resolves and closes without touching the interpreter's
+  stack.
+
+### Documentation
+
+- `docs/guides/scopes.md`'s "Nested scopes" section is rewritten around the
+  child-scope semantics and gains "Capping the depth"; both examples execute in
+  `nox -s docs_contract`.
+- `prds/15-nested-resolution-scopes.md` specifies the semantics, the measured
+  cost (flat ~3.3 µs per cache-hit resolve to depth 1,000; 462 B per level) and
+  the alternatives weighed, with D-64 … D-70 in the register.
+
 ## [0.1.0] - 2026-11-21
 
 First public release: the dependency-injection core of the `lauren` framework,

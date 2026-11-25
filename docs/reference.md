@@ -16,6 +16,7 @@ DIContainer(
     strict_request_scope: bool = False,
     value_tokens: Iterable[Any] = (),
     field_predicate: Callable[[str, Any], bool] | None = None,
+    max_scope_depth: int | None = None,
 )
 ```
 
@@ -25,7 +26,8 @@ Compiled DI container; immutable after `compile`.
 turns the lax request-scope fallback into an error. `value_tokens` nominates
 tokens that are supplied from a scope rather than by a provider.
 `field_predicate` returns `False` for class-body annotations your own layer
-owns, so they are left alone.
+owns, so they are left alone. `max_scope_depth` caps how deep
+`ResolutionScope.scope` may nest (`None`, the default, is unlimited).
 
 Registration: `register`, `register_class`, `register_instance`,
 `register_value`, `register_factory`, `register_alias`,
@@ -51,6 +53,8 @@ ResolutionScope(
     *,
     values: Mapping[Any, Any] | None = None,
     origin: str = "scope",
+    parent: ResolutionScope | None = None,
+    max_depth: int | None = None,
 )
 ```
 
@@ -60,6 +64,12 @@ The scope is the single owner of that cache: nothing else may tear it down,
 and closing it twice is a no-op rather than a double teardown. Values the
 host supplies (a request object, a job context) are visible to every
 resolution made through this scope.
+
+Scopes nest: `scope` opens a child scope from this one, to any depth,
+and the child's cache reads through to its ancestors — a `REQUEST`
+instance created by the parent is reused rather than rebuilt, and only an
+instance the child itself creates is torn down when the child closes
+(PRD 15 §5.3, §5.4).
 
 Resolving inside a closed scope raises `LifecycleViolationError`
 instead of silently constructing an instance whose teardown will never run.
