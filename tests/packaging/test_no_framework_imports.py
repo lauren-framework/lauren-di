@@ -90,7 +90,7 @@ EXPECTED_MODULES = frozenset(
 #: Absolute ``import``/``from`` statements in those modules (relative imports are
 #: intra-package and skipped), so a parser regression that silently drops imports
 #: fails here instead of passing an empty graph.
-EXPECTED_ABSOLUTE_IMPORT_SITES = 52
+EXPECTED_ABSOLUTE_IMPORT_SITES = 53
 
 #: Report what importing the installed wheel pulls in, and whether the optional
 #: dependency is even present.

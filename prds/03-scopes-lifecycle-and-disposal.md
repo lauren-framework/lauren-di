@@ -328,6 +328,10 @@ asyncio.run(main())
 |--------|-----------|----------|
 | `resolve` | `async resolve(token: Any) -> Any` | Resolves within this scope. `REQUEST` instances cache per token; `SINGLETON`s come from the container; `TRANSIENT`s are fresh. Raises `LifecycleViolationError` unless the scope is active |
 | `values` | `Mapping[Any, Any]` | Read-only view of the seeds passed to `container.scope(values=...)`. A token found here is returned as-is by `resolve`, and satisfies a constructor parameter of that type (D-8/D-13) |
+| `parent` | `ResolutionScope \| None` | The scope this one was opened from, `None` for a root scope (PRD 15 §5.2) |
+| `depth` | `int` | How many levels deep this scope sits; a root scope is `1` (PRD 15 §5.2) |
+| `scope` | `scope(*, values: Mapping[Any, Any] \| None = None, max_depth: int \| None = None) -> ResolutionScope` | Opens a child scope that reads through to this one (PRD 15 §5.3) |
+| `child_scopes` | `child_scopes() -> tuple[ResolutionScope, ...]` | The child scopes opened from this one that nobody has closed yet (PRD 15 §5.7) |
 | `closed` | `bool` | `False` until the scope closes, `True` after; the reference spells this `active`, with the opposite sense |
 | `errors` | `tuple[DestructError, ...]` | Empty until the scope closes; then the aggregated failures from that close (D-20) |
 | `close` | `async close() -> tuple[DestructError, ...]` | Idempotent. Tears down the cache newest-first and returns the errors. A second call returns the same tuple and does nothing |
@@ -361,8 +365,11 @@ Rules, each testable from the public surface:
 6. **Concurrency is documented, not prevented.** Two coroutines sharing one scope may both observe
    a cache miss for the same token and construct two instances; the second store wins. This is the
    same behaviour as a request in the reference and is stated so nobody discovers it in production.
-7. **Nesting is independent.** A scope opened inside another has its own cache and does not see the
-   outer scope's `REQUEST` instances.
+7. **Nesting is depth-ordered.** `scoped.scope()` opens a child scope (PRD 15): its cache reads
+   through to its ancestors, an instance it creates is cached and torn down at its own level, and
+   closing a scope closes the children nobody closed first. `container.scope()` inside an open
+   scope is still available and is a *root* — a new chain with an empty cache and no inherited
+   values, which is what the sibling reading in PRD 15 §5.9 calls the escape hatch.
 
 ### 5.4 Strict vs lax request-scope resolution
 

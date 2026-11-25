@@ -265,9 +265,9 @@ in PRD 02 §5.4 with the rest of the record.
 
 | Symbol | Kind | Signature | Stability | Specified in |
 |--------|------|-----------|-----------|--------------|
-| `DIContainer` | class | `DIContainer(*, overrides: OverridePlan \| None = None, strict_request_scope: bool = False, value_tokens: Iterable[Any] = (), field_predicate: Callable[[str, Any], bool] \| None = None)` | Stable | 02, 08 |
+| `DIContainer` | class | `DIContainer(*, overrides: OverridePlan \| None = None, strict_request_scope: bool = False, value_tokens: Iterable[Any] = (), field_predicate: Callable[[str, Any], bool] \| None = None, max_scope_depth: int \| None = None)` | Stable | 02, 08, 15 |
 | `Scope` | `IntEnum` | `Scope.TRANSIENT = 0`, `Scope.REQUEST = 1`, `Scope.SINGLETON = 2`; `.label: str` | Stable | 03 |
-| `ResolutionScope` | class | `async with container.scope(*, values: Mapping[Any, Any] \| None = None) as scope`; `await scope.resolve(token)`, `.values`, `await scope.close()` | Provisional | 03 |
+| `ResolutionScope` | class | `async with container.scope(*, values: Mapping[Any, Any] \| None = None, max_depth: int \| None = None) as scope`; `await scope.resolve(token)`, `.values`, `.parent`, `.depth`, `scope.scope(...)`, `.child_scopes()`, `await scope.close()` | Provisional | 03, 15 |
 
 `DIContainer` methods (all specified across PRDs 02–07):
 
@@ -288,7 +288,7 @@ in PRD 02 §5.4 with the rest of the record.
 | `instance_index` | `instance_index() -> Mapping[Any, Provider]` | 03 |
 | `applied_overrides` | `applied_overrides() -> frozenset[Any]` | 07 |
 | `resolve` | `async resolve(token: Any, *, request_cache: dict[Any, Any] \| None = None, values: Mapping[Any, Any] \| None = None, owning_module: type \| None = None) -> Any` | 02 |
-| `scope` | `scope(*, values: Mapping[Any, Any] \| None = None) -> ResolutionScope` | 03 |
+| `scope` | `scope(*, values: Mapping[Any, Any] \| None = None, max_depth: int \| None = None) -> ResolutionScope` | 03 |
 | `startup` | `async startup() -> None` | 03 |
 | `shutdown` | `async shutdown() -> tuple[DestructError, ...]` | 03 |
 | `adopt_lifecycle` | `adopt_lifecycle(instance: Any) -> None` | 03 |

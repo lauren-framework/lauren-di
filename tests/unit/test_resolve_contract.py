@@ -245,12 +245,15 @@ def test_scope_signature_matches_prd_5_3_3() -> None:
     """
     params = _signature(DIContainer.scope)
 
-    assert list(params) == ["self", "values"]
+    assert list(params) == ["self", "values", "max_depth"]
     assert params["values"].kind is inspect.Parameter.KEYWORD_ONLY
     assert params["values"].default is None
+    assert params["max_depth"].kind is inspect.Parameter.KEYWORD_ONLY
+    assert params["max_depth"].default is None
 
     hints = get_type_hints(DIContainer.scope)
     assert hints["values"] == Mapping[Any, Any] | None
+    assert hints["max_depth"] == int | None
     assert hints["return"] is ResolutionScope
 
 
@@ -263,7 +266,10 @@ def test_scope_annotation_matches_the_prd_row_in_the_same_words() -> None:
     """
     row = _prd_5_3_3_row("scope")
 
-    assert row == "scope(*, values: Mapping[Any, Any] | None = None) -> ResolutionScope"
+    assert row == (
+        "scope(*, values: Mapping[Any, Any] | None = None, "
+        "max_depth: int | None = None) -> ResolutionScope"
+    )
     assert _source_return_annotation("scope") == "ResolutionScope"
 
 

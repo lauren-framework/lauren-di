@@ -25,13 +25,14 @@ from __future__ import annotations
 
 import inspect
 import logging
+import weakref
 from collections.abc import Mapping
 from typing import TYPE_CHECKING, Any, TypeVar, overload
 
 # Intra-package split: ``_container`` owns the token renderer, and ``_scope``
 # reports teardown errors with the same labels.
 from ._container import _describe  # pyright: ignore[reportPrivateUsage]
-from ._errors import DestructError, LifecycleViolationError
+from ._errors import DestructError, LifecycleConfigError, LifecycleViolationError
 
 if TYPE_CHECKING:
     from . import DIContainer, Provider
@@ -44,6 +45,55 @@ logger = logging.getLogger("lauren_di")
 T = TypeVar("T")
 
 
+class _ScopeCache(dict[Any, Any]):
+    """One scope level's own cache, reading through to its ancestors.
+
+    A ``dict`` subclass rather than a mapping chain for three reasons, each of
+    them a contract other code depends on:
+
+    * ``DIContainer.resolve(request_cache=...)`` publishes ``dict[Any, Any]``
+      (PRD 01 §5.3.3), and an instance of this class *is* one;
+    * ``finalize_scope`` iterates the dict it is given and tears each entry
+      down, so iteration must yield this level's own instances only — a chain
+      would hand the parent's instances to the child's teardown (PRD 15 §5.4);
+    * a plain ``dict`` accepts the same writes, so an embedder that passes its
+      own cache keeps working unchanged.
+
+    A hit in an ancestor is returned and **not** copied down: the instance was
+    created at that level, and that level tears it down (PRD 15 §5.3). The walk
+    up the chain is a loop, not a recursive call, so a chain deeper than the
+    interpreter's stack still resolves (PRD 15 §6.6).
+    """
+
+    __slots__ = ("_parent",)
+
+    def __init__(self, parent: _ScopeCache | None = None) -> None:
+        super().__init__()
+        self._parent = parent
+
+    def __contains__(self, key: Any) -> bool:
+        cache: _ScopeCache | None = self
+        while cache is not None:
+            if dict.__contains__(cache, key):
+                return True
+            cache = cache._parent
+        return False
+
+    def __getitem__(self, key: Any) -> Any:
+        cache: _ScopeCache | None = self
+        while cache is not None:
+            if dict.__contains__(cache, key):
+                return dict.__getitem__(cache, key)
+            cache = cache._parent
+        raise KeyError(key)
+
+    def get(self, key: Any, default: Any = None) -> Any:
+        try:
+            return self[key]
+        except KeyError:
+            return default
+
+
 class ResolutionScope:
     """One open resolution scope, owning the cache of request-scoped instances.
 
@@ -52,11 +102,29 @@ class ResolutionScope:
     host supplies (a request object, a job context) are visible to every
     resolution made through this scope.
 
+    Scopes nest: :meth:`scope` opens a child scope from this one, to any depth,
+    and the child's cache reads through to its ancestors — a ``REQUEST``
+    instance created by the parent is reused rather than rebuilt, and only an
+    instance the child itself creates is torn down when the child closes
+    (PRD 15 §5.3, §5.4).
+
     Resolving inside a closed scope raises :class:`LifecycleViolationError`
     instead of silently constructing an instance whose teardown will never run.
     """
 
-    __slots__ = ("_cache", "_closed", "_container", "_errors", "_origin", "_values")
+    __slots__ = (
+        "__weakref__",
+        "_cache",
+        "_children",
+        "_closed",
+        "_container",
+        "_depth",
+        "_errors",
+        "_max_depth",
+        "_origin",
+        "_parent",
+        "_values",
+    )
 
     def __init__(
         self,
@@ -64,13 +132,34 @@ class ResolutionScope:
         *,
         values: Mapping[Any, Any] | None = None,
         origin: str = "scope",
+        parent: ResolutionScope | None = None,
+        max_depth: int | None = None,
     ) -> None:
         self._container = container
-        self._values: dict[Any, Any] = dict(values) if values else {}
-        self._cache: dict[Any, Any] = {}
+        self._parent = parent
+        self._depth: int = 1 if parent is None else parent._depth + 1
+        # Values are a *copy*, taken once at creation: a child sees everything
+        # its parent was seeded with, and a later mutation of either mapping is
+        # not visible to the other (PRD 15 §5.5).
+        inherited: dict[Any, Any] = dict(parent._values) if parent is not None else {}
+        if values:
+            inherited.update(values)
+        self._values: dict[Any, Any] = inherited
+        self._cache: _ScopeCache = _ScopeCache(None if parent is None else parent._cache)
+        # Allocated on the first child, and a flat list of weak references
+        # rather than a ``WeakSet``: a host opens one scope per unit of work, so
+        # an unused container of children must cost nothing, and a chain of
+        # levels must not pay ~1 KB per level for the privilege (measured:
+        # PRD 15 §6.6).
+        self._children: list[weakref.ref[ResolutionScope]] | None = None
         self._errors: tuple[DestructError, ...] = ()
         self._closed = False
         self._origin = origin
+        self._max_depth: int | None = (
+            max_depth
+            if max_depth is not None
+            else (parent._max_depth if parent is not None else None)
+        )
 
     # -- introspection ----------------------------------------------------
 
@@ -89,6 +178,16 @@ class ResolutionScope:
         """True once :meth:`close` has run."""
         return self._closed
 
+    @property
+    def parent(self) -> ResolutionScope | None:
+        """The scope this one was opened from, or ``None`` for a root scope."""
+        return self._parent
+
+    @property
+    def depth(self) -> int:
+        """How many levels deep this scope sits; a root scope is ``1``."""
+        return self._depth
+
     # -- lifecycle --------------------------------------------------------
 
     async def __aenter__(self) -> ResolutionScope:
@@ -97,6 +196,62 @@ class ResolutionScope:
     async def __aexit__(self, exc_type: Any, exc: Any, tb: Any) -> bool:
         await self.close()
         return False
+
+    def scope(
+        self,
+        *,
+        values: Mapping[Any, Any] | None = None,
+        max_depth: int | None = None,
+    ) -> ResolutionScope:
+        """Open a child scope that reads through to this one.
+
+        ``values`` are merged over the values this scope already holds, so a
+        child sees its ancestors' seeds without repeating them. ``max_depth``
+        overrides the container's limit for this subtree; it may only narrow it
+        (PRD 15 §5.6). Opening a level beyond the limit raises
+        :class:`LifecycleViolationError` before anything is constructed.
+        """
+        if self._closed:
+            raise LifecycleViolationError(
+                "Cannot open a child scope from a closed scope",
+                detail={"origin": self._origin, "state": "closed", "depth": self._depth},
+            )
+        limit = self._max_depth if max_depth is None else max_depth
+        if max_depth is not None and max_depth < 1:
+            raise LifecycleConfigError(
+                f"max_depth must be at least 1, not {max_depth!r}",
+                detail={"max_depth": max_depth, "reason": "invalid_max_depth"},
+            )
+        if max_depth is not None and self._max_depth is not None and max_depth > self._max_depth:
+            raise LifecycleConfigError(
+                f"max_depth {max_depth} widens this subtree's limit of {self._max_depth}",
+                detail={
+                    "max_depth": max_depth,
+                    "inherited_max_depth": self._max_depth,
+                    "reason": "widened_max_depth",
+                },
+            )
+        depth = self._depth + 1
+        if limit is not None and depth > limit:
+            raise LifecycleViolationError(
+                f"Cannot open scope level {depth}: max_depth is {limit}",
+                detail={
+                    "depth": depth,
+                    "max_depth": limit,
+                    "reason": "depth_exceeded",
+                },
+            )
+        child = ResolutionScope(
+            self._container,
+            values=values,
+            origin=self._origin,
+            parent=self,
+            max_depth=limit,
+        )
+        if self._children is None:
+            self._children = []
+        self._children.append(weakref.ref(child))
+        return child
 
     # Overloads (PRD 01 §5.6), mirroring :meth:`DIContainer.resolve`: a class
     # token is statically typed, and the fallback names the two non-class token
@@ -123,16 +278,59 @@ class ResolutionScope:
             owning_module=owning_module,
         )
 
+    def _live_children(self) -> list[ResolutionScope]:
+        """Child scopes still open, pruning the references of those that are not."""
+        if self._children is None:
+            return []
+        live: list[ResolutionScope] = []
+        keep: list[weakref.ref[ResolutionScope]] = []
+        for ref in self._children:
+            child = ref()
+            if child is None or child._closed:
+                continue
+            keep.append(ref)
+            live.append(child)
+        self._children = keep
+        return live
+
+    def child_scopes(self) -> tuple[ResolutionScope, ...]:
+        """The child scopes opened from this one that nobody has closed yet."""
+        return tuple(self._live_children())
+
     async def close(self) -> tuple[DestructError, ...]:
-        """Tear down every instance this scope created. Idempotent; never raises."""
+        """Tear down every instance this scope created. Idempotent; never raises.
+
+        Open child scopes are closed first, deepest first, so an instance is
+        never torn down while a scope that reads through it can still hand it
+        out (PRD 15 §5.7). Both walks are iterative — this one and the cache
+        lookup — because "unlimited" nesting must survive a chain deeper than
+        the interpreter's stack (measured: PRD 15 §6.6). Each child keeps its
+        own ``errors``; this scope's returned tuple is its own cache's failures.
+        """
         if self._closed:
             return self._errors
+        chain: list[ResolutionScope] = []
+        stack: list[ResolutionScope] = [self]
+        while stack:
+            node = stack.pop()
+            chain.append(node)
+            stack.extend(node._live_children())
+        # ``chain`` is parents-before-children, so the reverse is the teardown
+        # order: a leaf's instances go before the ancestor it read through.
+        for node in reversed(chain):
+            if not node._closed:
+                await node._close_self()
+        return self._errors
+
+    async def _close_self(self) -> None:
+        """Finalise this level's own cache, without touching any other level."""
         self._closed = True
         self._errors = tuple(
             await finalize_scope(self._container, self._cache, origin=self._origin)
         )
         self._cache.clear()
-        return self._errors
+        if self._parent is not None and self._parent._children is not None:
+            self._parent._children = [ref for ref in self._parent._children if ref() is not self]
 
 
 async def finalize_scope(

@@ -325,7 +325,8 @@ class DIContainer:
     turns the lax request-scope fallback into an error. ``value_tokens`` nominates
     tokens that are supplied from a scope rather than by a provider.
     ``field_predicate`` returns ``False`` for class-body annotations your own layer
-    owns, so they are left alone.
+    owns, so they are left alone. ``max_scope_depth`` caps how deep
+    :meth:`ResolutionScope.scope` may nest (``None``, the default, is unlimited).
 
     Registration: ``register``, ``register_class``, ``register_instance``,
     ``register_value``, ``register_factory``, ``register_alias``,
@@ -344,7 +345,14 @@ class DIContainer:
         strict_request_scope: bool = False,
         value_tokens: Iterable[Any] = (),
         field_predicate: Callable[[str, Any], bool] | None = None,
+        max_scope_depth: int | None = None,
     ) -> None:
+        if max_scope_depth is not None and max_scope_depth < 1:
+            raise LifecycleConfigError(
+                f"max_scope_depth must be at least 1, not {max_scope_depth!r}",
+                detail={"max_depth": max_scope_depth, "reason": "invalid_max_depth"},
+            )
+        self._max_scope_depth = max_scope_depth
         self._providers: dict[type, Provider] = {}
         # Token -> list of providers (for protocols / multi-bindings)
         self._token_bindings: dict[type, list[Provider]] = {}
@@ -1392,7 +1400,12 @@ class DIContainer:
         self._singletons_initialized.clear()
         return tuple(errors)
 
-    def scope(self, *, values: Mapping[Any, Any] | None = None) -> ResolutionScope:
+    def scope(
+        self,
+        *,
+        values: Mapping[Any, Any] | None = None,
+        max_depth: int | None = None,
+    ) -> ResolutionScope:
         """Open an explicit resolution scope owning its own request cache.
 
         The returned :class:`ResolutionScope` is itself an async context manager
@@ -1402,12 +1415,22 @@ class DIContainer:
             async with container.scope() as scope:  ...
             scope = container.scope()
 
+        ``max_depth`` overrides ``DIContainer(max_scope_depth=...)`` for this
+        subtree and may only narrow it. Nesting is unlimited when both are
+        ``None`` (PRD 15 §5.6).
+
         The class, not the ``AsyncContextManager[ResolutionScope]`` protocol, is
         the declared return type because the protocol would hide ``.values``,
         ``.errors`` and ``await scope.close()`` from the caller while telling
         them less than the truth about what comes back.
         """
-        return ResolutionScope(self, values=values)
+        limit = self._max_scope_depth if max_depth is None else max_depth
+        if max_depth is not None and max_depth < 1:
+            raise LifecycleConfigError(
+                f"max_depth must be at least 1, not {max_depth!r}",
+                detail={"max_depth": max_depth, "reason": "invalid_max_depth"},
+            )
+        return ResolutionScope(self, values=values, max_depth=limit)
 
     def _alias_terminal(self, provider: Provider) -> Provider | None:
         """The provider a consumer edge through ``provider`` actually acquires.
