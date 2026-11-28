@@ -26,6 +26,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Documentation
 
+- `prds/16-extensible-scopes.md` specifies **extensible scopes**: `ScopeDef` /
+  `ScopeSet` / `Carrier` replace the closed enum, `Scope` stays the default
+  ladder with `TRANSIENT = 0` / `REQUEST = 1` / `SINGLETON = 2`, and an
+  application declares its own levels per container. It measures the four
+  defects that motivate it — the enum cannot be subclassed, a foreign scope
+  compiles and is then cached nowhere and torn down never, the narrowing rule
+  reads a foreign rank as "wider than everything", and the error path raises
+  `AttributeError` — with D-71 … D-78 in the register, D-77 (which node caches a
+  new instance) recorded as open for review. Proposed only: no code in this
+  change.
 - `docs/guides/scopes.md`'s "Nested scopes" section is rewritten around the
   child-scope semantics and gains "Capping the depth"; both examples execute in
   `nox -s docs_contract`.
